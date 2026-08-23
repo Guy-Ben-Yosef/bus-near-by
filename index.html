@@ -13,6 +13,7 @@
             box-sizing:border-box; display:flex; flex-direction:column; padding:30px 44px;
             overflow:hidden; }
   @keyframes bnb-scroll-once { from { transform:translateY(0); } to { transform:translateY(var(--scroll-end)); } }
+  @keyframes bnb-marquee { from { transform:translateX(0); } to { transform:translateX(var(--marquee-end)); } }
 
   .hdr { display:flex; justify-content:space-between; align-items:baseline; flex:0 0 auto; }
   .hdr .title { font-size:26px; font-weight:600; letter-spacing:0.02em; }
@@ -32,8 +33,10 @@
          box-sizing:border-box; border-bottom:1px solid #1c1c1c; }
   .row .line { font-size:30px; font-weight:700; }
   .row .mid { min-width:0; }
-  .row .dest { display:block; font-size:22px; white-space:nowrap; overflow:hidden;
-               text-overflow:ellipsis; }
+  .row .dest { display:block; font-size:22px; white-space:nowrap; overflow:hidden; }
+  .row .dest .dest-track { display:inline-flex; white-space:nowrap; }
+  .row .dest .dest-track.scrolling { animation-name:bnb-marquee; animation-timing-function:linear;
+                                      animation-iteration-count:infinite; }
   .row .meta { display:block; font-size:15px; color:#6a6a6a; margin-top:2px; }
   .row .min { text-align:right; font-size:34px; font-weight:700;
               font-variant-numeric:tabular-nums; }
@@ -79,6 +82,9 @@ const PAGE_SECONDS = 15;                     // screen transition cadence
 const SCROLL_FINISH_S = PAGE_SECONDS - 1;    // scrolling ends 1s before the transition
 const SCROLL_ROW_S = 2;                      // pace: seconds per hidden row
 const SCROLL_START_MIN_S = 3;                // always leave time to read the top rows
+const MARQUEE_SPEED_PX_S = 18;               // destination text scroll speed (slow, legible)
+const MARQUEE_GAP_PX = 60;                   // gap between the tail and the repeated head
+const MARQUEE_EPOCH = Date.now();            // shared clock so re-renders don't restart the scroll
 
 let stopsData = {};        // code -> [{line, destination, operator, due, live, updatedAt}]
 let page = 0;
@@ -158,7 +164,7 @@ function buildStop(stop) {
     return `<div class="row">
       <span class="line">${esc(flap(b.line))}</span>
       <span class="mid">
-        <span class="dest" style="color:${rowColor}">${esc(flap(b.destination))}</span>
+        <span class="dest" style="color:${rowColor}"><span class="dest-track"><span class="dest-text">${esc(flap(b.destination))}</span></span></span>
         <span class="meta">${flap(eta)} · <span style="color:${statusColor}">${flap(b.live ? "LIVE" : "SCHD")}</span> · ${esc(flap(b.operator))}</span>
       </span>
       <span class="min" style="color:${minsColor}">${flap(minsText)}</span>
@@ -210,6 +216,28 @@ function render() {
     return;
   }
   content.innerHTML = PAGES[page].map(buildStop).join("");
+  applyMarquee();
+}
+
+function applyMarquee() {
+  // Seamless head-to-tail loop: duplicate the text once, gap between the
+  // copies, then scroll left by exactly one copy's width forever — when the
+  // first copy exits, the second is sitting exactly where the first began.
+  const elapsed = (Date.now() - MARQUEE_EPOCH) / 1000;
+  document.querySelectorAll(".dest").forEach(container => {
+    const track = container.querySelector(".dest-track");
+    const textEl = track.querySelector(".dest-text");
+    const overflow = textEl.scrollWidth - container.clientWidth;
+    if (overflow <= 1) return;
+    track.appendChild(textEl.cloneNode(true));
+    track.style.gap = `${MARQUEE_GAP_PX}px`;
+    const unit = textEl.getBoundingClientRect().width + MARQUEE_GAP_PX;
+    const dur = Math.max(unit / MARQUEE_SPEED_PX_S, 3);
+    track.style.setProperty("--marquee-end", `-${unit}px`);
+    track.style.animationDuration = `${dur.toFixed(2)}s`;
+    track.style.animationDelay = `-${(elapsed % dur).toFixed(3)}s`;
+    track.classList.add("scrolling");
+  });
 }
 
 function fit() {

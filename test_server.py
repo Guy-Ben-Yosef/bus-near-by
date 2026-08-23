@@ -188,8 +188,18 @@ class FrontendContractTest(unittest.TestCase):
         # one pass, stops at the end (no infinite loop), ends 1s before the flip
         self.assertIn("bnb-scroll-once", self.html)
         self.assertIn("linear forwards", self.html)
-        self.assertNotIn("infinite", self.html)
+        scroll_once_lines = [l for l in self.html.splitlines() if "bnb-scroll-once" in l]
+        self.assertTrue(scroll_once_lines)
+        self.assertTrue(all("infinite" not in l for l in scroll_once_lines))
         self.assertIn("SCROLL_FINISH_S = PAGE_SECONDS - 1", self.html)
+
+    def test_overlong_destination_scrolls_horizontally(self):
+        # destination text that overflows its cell marquees left, head-to-tail,
+        # forever (unlike the single-pass row-list scroll above)
+        self.assertIn("dest-text", self.html)
+        self.assertIn("bnb-marquee", self.html)
+        self.assertIn("animation-iteration-count:infinite", self.html)
+        self.assertIn("scrollWidth - container.clientWidth", self.html)
 
     def test_split_flap_settles_left_to_right(self):
         self.assertIn("0.15 + (i / Math.max(1, str.length)) * 0.8", self.html)
