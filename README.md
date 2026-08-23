@@ -37,6 +37,18 @@ reporting en route; **scheduled** rows are predictions for buses that
 haven't departed yet (or pure timetable entries on the Stride fallback
 path).
 
+## Tests
+
+```bash
+python3 -m unittest test_server -v
+```
+
+Stdlib `unittest` only, no test dependencies. Offline unit tests (mocked
+upstreams) lock down the API contract, the 20-minute window, English-only
+output, live/scheduled logic, ETA math and the fallback path; live
+integration tests assert data freshness (< 3 min) and refresh speed
+(< 10 s cold, instant cached), and skip if the network is down.
+
 ## Notes
 
 - `GET /api/arrivals` is cached for 20 s server-side to be polite to the
