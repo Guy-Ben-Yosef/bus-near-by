@@ -1,7 +1,9 @@
 # bus-near-by
 
-Realtime "next buses" board for stop **23012** — כיכר מילאנו/אבן גבירול,
-Tel Aviv.
+A passive realtime departure board for the 4 bus stops around **Milano
+Square / Ibn Gvirol, Tel Aviv**, built to run full-screen on a Raspberry Pi
+driving a 4:3 monitor in browser kiosk mode. No interaction of any kind —
+no scroll, no taps; the board is watch-only.
 
 ## Run
 
@@ -10,32 +12,33 @@ python3 server.py
 ```
 
 Then open <http://localhost:8000>. No dependencies — Python 3 stdlib only.
+(For a display on another device, change the bind address at the bottom of
+`server.py` to `0.0.0.0`.)
 
-## Data sources
+## The board
 
-1. **Primary: [Curlbus](https://curlbus.app)**
-   ([open source](https://github.com/elad661/curlbus)) — a public JSON proxy
-   for the Ministry of Transport's **SIRI SM** realtime feed. Returns the
-   MOT's own predicted arrival time per bus (the same predictions transit
-   apps like Bus Nearby show), typically seconds-fresh.
-2. **Fallback: [Open Bus Stride API](https://github.com/hasadna/open-bus-stride-api)**
-   (Hasadna / open-bus project) — used automatically when Curlbus is down,
-   and always for the stop's name/location. Stride's SIRI ingestion can lag
-   realtime by 2-20 minutes, so on this path ETAs are projections from each
-   bus's last known position along its route, matched to the GTFS timetable.
+Implements the `design_handoff_bus_near_by/` spec exactly:
 
-The footer of the page shows which source is active.
+- Fixed 1024×768 canvas, uniformly scaled to fit the screen; IBM Plex Mono,
+  all uppercase, dark Solari-board aesthetic.
+- Two screens alternating every 10 s with a split-flap character-shuffle
+  transition: **N/S** (stop 25893 southbound | stop 23012 northbound) and
+  **E/W** (stop 20676 westbound | stop 25894 eastbound).
+- Per stop: buses due in the next 10 minutes, soonest first, 3 rows visible;
+  more rows auto-scroll inside the fixed viewport. `NOW` when under a
+  minute; buses linger ~45 s past due.
+- MIN value color: green = live and updated ≤45 s ago, orange = live but
+  update delayed, gray = scheduled (not yet departed).
+- Data refreshes every 15 s; countdown re-renders every second. Feed outage
+  shows `ARRIVAL DATA UNAVAILABLE` with the age of the last good update.
 
-## What it shows
+## Backend
 
-For each bus arriving within the next 20 minutes: line number, destination,
-operator, ETA (live countdown in minutes plus clock time). All text is
-English. The board is a passive single-screen display — no scrolling or any
-other interaction; it always fits one viewport and shows at most the next 8
-arrivals. Rows marked **live** (green pulsing dot) are buses actually
-reporting en route; **scheduled** rows are predictions for buses that
-haven't departed yet (or pure timetable entries on the Stride fallback
-path).
+`GET /api/arrivals` (cached 10 s) fans out to https://curlbus.app — a
+public JSON proxy for the Ministry of Transport's SIRI SM realtime feed —
+one request per stop, in parallel. Each arrival: line, English destination,
+operator, ETA, live flag, and the vehicle's last-update timestamp. Upstream
+failure returns 502, which the board renders as its error state.
 
 ## Tests
 
@@ -43,19 +46,8 @@ path).
 python3 -m unittest test_server -v
 ```
 
-Stdlib `unittest` only, no test dependencies. Offline unit tests (mocked
-upstreams) lock down the API contract, the 20-minute window, English-only
-output, live/scheduled logic, ETA math and the fallback path; live
-integration tests assert data freshness (< 3 min) and refresh speed
-(< 10 s cold, instant cached), and skip if the network is down.
-
-## Notes
-
-- `GET /api/arrivals` is cached for 20 s server-side to be polite to the
-  upstream services; the page polls every 30 s.
-- To use a different stop, change `STOP_CODE` in `server.py` (the code on the
-  physical stop sign / in Google Maps).
-- If you ever want to cut out the middleman entirely: the MOT offers direct
-  SIRI SM access — sign the request form and email it to ptsupport@mot.gov.il
-  (see gov.il "מידע בזמן אמת – ממשק למפתחים"), and you get a personal access
-  key to query their server directly.
+Stdlib `unittest` only. Offline unit tests (mocked upstream) freeze the API
+contract, the arrival window and drop-off rules, live/scheduled logic, the
+cache, and the frontend's design contract (canvas, timings, split-flap,
+colors, states); live integration tests assert upstream freshness (< 3 min)
+and refresh speed (< 10 s cold, instant cached), skipping if offline.

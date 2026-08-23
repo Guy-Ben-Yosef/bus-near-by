@@ -3,114 +3,217 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bus Near By — stop 23012</title>
+<title>Bus Near By</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg: #f5f6f8; --card: #fff; --text: #1a1d21; --muted: #6b7280;
-    --live: #16a34a; --badge: #1d4ed8; --border: #e5e7eb;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#111418; --card:#1b1f26; --text:#e8eaed; --muted:#9aa1ab;
-            --live:#34d399; --badge:#3b82f6; --border:#2a3038; }
-  }
-  * { box-sizing: border-box; }
-  html, body { height:100%; }
-  body { margin:0; font-family:-apple-system, "Segoe UI", Roboto, sans-serif;
-         background:var(--bg); color:var(--text); overflow:hidden; }
-  .wrap { max-width:560px; margin:0 auto; padding:16px; height:100dvh;
-          display:flex; flex-direction:column; }
-  header h1 { font-size:1.05rem; margin:0; color:var(--muted); font-weight:500; }
-  header .stop { font-size:1.4rem; font-weight:700; margin:2px 0 0; }
-  header .sub { color:var(--muted); font-size:.85rem; margin-top:2px; }
-  .card { background:var(--card); border:1px solid var(--border); border-radius:12px;
-          margin-top:14px; overflow:hidden; flex:1; min-height:0;
-          display:flex; flex-direction:column; }
-  .row { display:flex; align-items:center; gap:12px; padding:6px 14px;
-         border-bottom:1px solid var(--border); flex:1; min-height:0; }
-  .row:last-child { border-bottom:none; }
-  .badge { min-width:52px; text-align:center; background:var(--badge); color:#fff;
-           border-radius:8px; font-weight:700; font-size:1.1rem; padding:6px 8px; }
-  .info { flex:1; min-width:0; }
-  .dest { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .meta { color:var(--muted); font-size:.78rem; margin-top:2px; }
-  .eta { text-align:right; }
-  .eta .min { font-size:1.35rem; font-weight:700; }
-  .eta .unit { font-size:.75rem; color:var(--muted); }
-  .live-dot { display:inline-block; width:8px; height:8px; border-radius:50%;
-              background:var(--live); margin-right:4px; animation:pulse 1.5s infinite; }
-  @keyframes pulse { 50% { opacity:.3; } }
-  .status-live { color:var(--live); font-size:.75rem; font-weight:600; }
-  .status-sched { color:var(--muted); font-size:.75rem; }
-  footer { color:var(--muted); font-size:.75rem; margin-top:12px; line-height:1.5; }
-  footer a { color:inherit; }
-  .empty, .error { padding:24px; text-align:center; color:var(--muted); }
-  .error { color:#dc2626; }
+  html, body { margin:0; padding:0; height:100%; background:#0d0d0d; overflow:hidden; }
+  #stage { width:100vw; height:100vh; background:#0d0d0d; overflow:hidden; position:relative; }
+  #canvas { width:1024px; height:768px; position:absolute; left:50%; top:50%;
+            background:#0d0d0d; color:#e8e8e8; font-family:'IBM Plex Mono',monospace;
+            box-sizing:border-box; display:flex; flex-direction:column; padding:30px 44px;
+            overflow:hidden; }
+  @keyframes bnb-scroll { 0%,8% { transform:translateY(0); } 92%,100% { transform:translateY(-50%); } }
+
+  .hdr { display:flex; justify-content:space-between; align-items:baseline; flex:0 0 auto; }
+  .hdr .title { font-size:26px; font-weight:600; letter-spacing:0.02em; }
+  .hdr .clock { font-size:26px; font-weight:600; font-variant-numeric:tabular-nums; }
+
+  #content { flex:1 1 0; display:flex; gap:40px; min-height:0; }
+  .col { flex:1 1 0; display:flex; flex-direction:column; min-width:0; margin-top:22px; }
+  .dirhdr { display:flex; justify-content:space-between; align-items:baseline;
+            border-bottom:1px solid #3a3a3a; padding-bottom:8px; }
+  .dirhdr .dir { font-size:22px; font-weight:600; letter-spacing:0.04em; }
+  .dirhdr .code { font-size:16px; color:#8a8a8a; }
+  .colhdr { display:grid; grid-template-columns:72px 1fr 96px; font-size:14px; color:#8a8a8a;
+            letter-spacing:0.08em; padding:8px 0 6px; border-bottom:1px solid #222222; }
+  .colhdr .min-h { text-align:right; }
+  .rows-vp { height:270px; overflow:hidden; }
+  .row { display:grid; grid-template-columns:72px 1fr 96px; align-items:center; height:90px;
+         box-sizing:border-box; border-bottom:1px solid #1c1c1c; }
+  .row .line { font-size:30px; font-weight:700; }
+  .row .mid { min-width:0; }
+  .row .dest { display:block; font-size:22px; white-space:nowrap; overflow:hidden;
+               text-overflow:ellipsis; }
+  .row .meta { display:block; font-size:15px; color:#6a6a6a; margin-top:2px; }
+  .row .min { text-align:right; font-size:34px; font-weight:700;
+              font-variant-numeric:tabular-nums; }
+  .empty { height:270px; display:flex; align-items:center; justify-content:center;
+           font-size:17px; color:#6a6a6a; text-align:center; }
+
+  .err { flex:1 1 0; display:flex; flex-direction:column; align-items:center;
+         justify-content:center; gap:16px; text-align:center; }
+  .err .t { font-size:30px; font-weight:600; }
+  .err .s { font-size:18px; color:#8a8a8a; }
+
+  .ftr { flex:0 0 auto; display:flex; justify-content:space-between; font-size:14px;
+         color:#6a6a6a; border-top:1px solid #3a3a3a; padding-top:10px; margin-top:16px; }
+  .ftr .page { white-space:pre; color:#9a9a9a; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>Next buses at</h1>
-    <div class="stop" id="stop-name">Loading…</div>
-    <div class="sub" id="stop-sub"></div>
-  </header>
-  <div class="card" id="board"><div class="empty">Loading arrivals…</div></div>
-  <footer><span id="updated"></span></footer>
+<div id="stage">
+  <div id="canvas">
+    <div class="hdr">
+      <span class="title">BUS NEAR BY · MILANO SQUARE</span>
+      <span class="clock" id="clock"></span>
+    </div>
+    <div id="content"></div>
+    <div class="ftr">
+      <span><span style="color:#8fbc8f">■</span> LIVE · <span style="color:#d99a4e">■</span> LIVE, UPDATE DELAYED · <span style="color:#9a9a9a">■</span> SCHEDULED</span>
+      <span class="page" id="page-label"></span>
+      <span>NEXT 10 MIN · REFRESH 15S</span>
+    </div>
+  </div>
 </div>
 <script>
-const $ = id => document.getElementById(id);
-const fmtTime = s => new Date(s).toLocaleTimeString("en-GB",
-  { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
+const PAGES = [
+  [{ code: "25893", direction: "SOUTHBOUND", arrow: "↓" },
+   { code: "23012", direction: "NORTHBOUND", arrow: "↑" }],
+  [{ code: "20676", direction: "WESTBOUND", arrow: "←" },
+   { code: "25894", direction: "EASTBOUND", arrow: "→" }],
+];
+const PAGE_LABELS = ["[ N/S ]  E/W ", "  N/S  [ E/W ]"];
+const FLAP_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-async function refresh() {
+let stopsData = {};        // code -> [{line, destination, operator, due, live, updatedAt}]
+let page = 0;
+let flapP = null;          // split-flap progress 0..1, null when idle
+let error = false;
+let lastGood = null;
+let transitioning = false;
+let flapTimer = null;
+const scrollMeta = {};     // code -> {n, start} to keep scroll phase across re-renders
+
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function flap(str) {
+  if (flapP == null || !str) return str;
+  let out = "";
+  for (let i = 0; i < str.length; i++) {
+    const settle = 0.15 + (i / Math.max(1, str.length)) * 0.8;
+    out += (flapP >= settle || str[i] === " ")
+      ? str[i] : FLAP_CHARS[Math.floor(Math.random() * FLAP_CHARS.length)];
+  }
+  return out;
+}
+
+async function fetchData() {
   try {
     const res = await fetch("/api/arrivals");
+    if (!res.ok) throw new Error(res.status);
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || res.statusText);
-    render(data);
+    stopsData = {};
+    for (const [code, list] of Object.entries(data.stops)) {
+      stopsData[code] = list.map(b => ({
+        line: b.line, destination: b.destination, operator: b.operator,
+        due: new Date(b.eta), live: b.live,
+        updatedAt: b.updated_at ? new Date(b.updated_at) : null,
+      }));
+    }
+    lastGood = Date.now();
+    error = false;
   } catch (e) {
-    $("board").innerHTML = `<div class="error">Failed to load: ${e.message}</div>`;
+    error = true;
   }
+  render();
 }
 
-function render(data) {
-  $("stop-name").textContent = data.stop.name;
-  $("stop-sub").textContent = `Stop ${data.stop.code} · ${data.stop.city}`;
-  const ageSec = Math.max(0, Math.round((Date.now() - new Date(data.data_at || data.updated_at)) / 1000));
-  $("updated").textContent = `data ${ageSec}s old` +
-    (data.error ? " (stale — refresh error)" : "");
+function startTransition() {
+  if (transitioning) return;          // guard against overlapping transitions
+  transitioning = true;
+  setTimeout(() => { transitioning = false; }, 2000);
+  page = 1 - page;                    // swap data instantly, then scramble 1.5s
+  const t0 = Date.now();
+  clearInterval(flapTimer);
+  flapTimer = setInterval(() => {
+    const p = (Date.now() - t0) / 1500;
+    if (p >= 1) { clearInterval(flapTimer); flapP = null; render(); return; }
+    flapP = p;
+    render();
+  }, 70);
+  render();
+}
 
-  if (!data.arrivals.length) {
-    $("board").innerHTML = `<div class="empty">No buses expected in the next 20 minutes.</div>`;
-    return;
-  }
-  $("board").innerHTML = data.arrivals.slice(0, 8).map(a => {
-    const live = a.status === "live";
-    const mins = Math.max(0, Math.floor((new Date(a.eta) - Date.now()) / 60000));
-    const status = live
-      ? `<span class="status-live"><span class="live-dot"></span>live` +
-        (a.delay_min > 1 ? ` · +${a.delay_min} min` : a.delay_min < -1 ? ` · ${a.delay_min} min` : "") +
-        `</span>`
-      : `<span class="status-sched">scheduled</span>`;
-    const parts = [status, `ETA ${fmtTime(a.eta)}`];
-    if (a.planned) parts.push(`planned ${fmtTime(a.planned)}`);
-    if (a.agency) parts.push(a.agency);
+function buildStop(stop) {
+  const now = Date.now();
+  const list = (stopsData[stop.code] || [])
+    .map(b => ({ ...b, mins: (b.due - now) / 60000 }))
+    .filter(b => b.mins > -0.75 && b.mins <= 10)
+    .sort((a, b) => a.mins - b.mins);
+
+  const rowsHtml = list.map(b => {
+    const isNow = b.mins < 1;
+    const updAge = b.updatedAt ? (now - b.updatedAt) / 1000 : Infinity;
+    const minsColor = !b.live ? "#9a9a9a" : (updAge <= 45 ? "#8fbc8f" : "#d99a4e");
+    const rowColor = b.live ? "#e8e8e8" : "#9a9a9a";
+    const statusColor = b.live ? "#c9c9c9" : "#6a6a6a";
+    const eta = b.due.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const minsText = isNow ? "NOW" : String(Math.max(0, Math.round(b.mins)));
     return `<div class="row">
-      <div class="badge">${a.line}</div>
-      <div class="info">
-        <div class="dest">${a.destination}</div>
-        <div class="meta">${parts.join(" · ")}</div>
-      </div>
-      <div class="eta">
-        <div class="min">${mins === 0 ? "now" : mins}</div>
-        <div class="unit">${mins === 0 ? "" : "min"}</div>
-      </div>
+      <span class="line">${esc(flap(b.line))}</span>
+      <span class="mid">
+        <span class="dest" style="color:${rowColor}">${esc(flap(b.destination))}</span>
+        <span class="meta">${flap(eta)} · <span style="color:${statusColor}">${flap(b.live ? "LIVE" : "SCHD")}</span> · ${esc(flap(b.operator))}</span>
+      </span>
+      <span class="min" style="color:${minsColor}">${flap(minsText)}</span>
     </div>`;
   }).join("");
+
+  const scrolls = list.length > 3;
+  let anim = "none";
+  if (scrolls) {
+    const dur = list.length * 5;
+    let meta = scrollMeta[stop.code];
+    if (!meta || meta.n !== list.length) meta = scrollMeta[stop.code] = { n: list.length, start: now };
+    anim = `bnb-scroll ${dur}s linear infinite`;
+    anim += `;animation-delay:-${((now - meta.start) / 1000) % dur}s`;
+  } else {
+    delete scrollMeta[stop.code];
+  }
+
+  const body = list.length
+    ? `<div class="rows-vp"><div style="animation:${anim}">${scrolls ? rowsHtml + rowsHtml : rowsHtml}</div></div>`
+    : `<div class="empty">NO BUSES EXPECTED IN THE NEXT 10 MINUTES</div>`;
+
+  return `<div class="col">
+    <div class="dirhdr">
+      <span class="dir">${stop.arrow} ${flap(stop.direction)}</span>
+      <span class="code">STOP #${flap(stop.code)}</span>
+    </div>
+    <div class="colhdr"><span>LINE</span><span>DESTINATION</span><span class="min-h">MIN</span></div>
+    ${body}
+  </div>`;
 }
 
-refresh();
-setInterval(refresh, 15000);
+function render() {
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-GB",
+    { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  document.getElementById("page-label").textContent = PAGE_LABELS[page];
+
+  const content = document.getElementById("content");
+  if (error) {
+    const age = lastGood == null ? null : Math.floor((Date.now() - lastGood) / 1000);
+    const ageText = age == null ? "—" : (age < 60 ? age + "S" : Math.floor(age / 60) + " MIN");
+    content.innerHTML = `<div class="err">
+      <div class="t">ARRIVAL DATA UNAVAILABLE</div>
+      <div class="s">LAST UPDATE ${ageText} AGO · ATTEMPTING RECONNECT</div>
+    </div>`;
+    return;
+  }
+  content.innerHTML = PAGES[page].map(buildStop).join("");
+}
+
+function fit() {
+  const s = Math.min(window.innerWidth / 1024, window.innerHeight / 768);
+  document.getElementById("canvas").style.transform = `translate(-50%,-50%) scale(${s})`;
+}
+
+window.addEventListener("resize", fit);
+fit();
+fetchData();
+setInterval(render, 1000);
+setInterval(fetchData, 15000);
+setInterval(startTransition, 10000);
 </script>
 </body>
 </html>
