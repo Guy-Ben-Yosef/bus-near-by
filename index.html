@@ -173,10 +173,11 @@ function buildStop(stop) {
     const dur = Math.min((list.length - VISIBLE_ROWS) * SCROLL_ROW_S, SCROLL_FINISH_S - SCROLL_START_MIN_S);
     const start = SCROLL_FINISH_S - dur;
     const elapsed = (now - pageShownAt) / 1000;
-    style = `--scroll-end:-${dist}px`;
-    if (elapsed >= start) {
-      style += `;animation:bnb-scroll-once ${dur}s linear forwards;animation-delay:${(start - elapsed).toFixed(3)}s`;
-    }
+    // Always attach the animation; a positive delay lets the browser start it
+    // at exactly the right moment (smooth), instead of waiting for the next
+    // 1s render tick and jumping mid-scroll.
+    style = `--scroll-end:-${dist}px;animation:bnb-scroll-once ${dur}s linear forwards;`
+          + `animation-delay:${(start - elapsed).toFixed(3)}s`;
   }
 
   const body = list.length
