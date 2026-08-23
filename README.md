@@ -24,7 +24,7 @@ Implements the `design_handoff_bus_near_by/` spec exactly:
 - Two screens alternating every 15 s with a split-flap character-shuffle
   transition: **N/S** (stop 25893 southbound | stop 23012 northbound) and
   **E/W** (stop 20676 westbound | stop 25894 eastbound).
-- Per stop: buses due in the next 10 minutes, soonest first, 3 rows visible.
+- Per stop: buses due in the next 10 minutes, soonest first, 6 rows visible.
   When more qualify, the list scrolls down exactly once (2 s per hidden
   row), timed to reach the end 1 s before the screen transition, and holds
   there until the flip. `NOW` when under a minute; buses linger ~45 s past

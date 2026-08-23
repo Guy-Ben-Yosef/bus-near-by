@@ -182,8 +182,9 @@ class FrontendContractTest(unittest.TestCase):
     def test_ten_minute_window_client_side(self):
         self.assertIn("b.mins > -0.75 && b.mins <= 10", self.html)
 
-    def test_three_row_viewport_with_single_pass_scroll(self):
-        self.assertIn("height:270px", self.html)
+    def test_six_row_viewport_with_single_pass_scroll(self):
+        self.assertIn("VISIBLE_ROWS = 6", self.html)
+        self.assertIn("height:540px", self.html)
         # one pass, stops at the end (no infinite loop), ends 1s before the flip
         self.assertIn("bnb-scroll-once", self.html)
         self.assertIn("linear forwards", self.html)
