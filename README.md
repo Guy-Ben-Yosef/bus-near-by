@@ -21,12 +21,14 @@ Implements the `design_handoff_bus_near_by/` spec exactly:
 
 - Fixed 1024×768 canvas, uniformly scaled to fit the screen; IBM Plex Mono,
   all uppercase, dark Solari-board aesthetic.
-- Two screens alternating every 10 s with a split-flap character-shuffle
+- Two screens alternating every 15 s with a split-flap character-shuffle
   transition: **N/S** (stop 25893 southbound | stop 23012 northbound) and
   **E/W** (stop 20676 westbound | stop 25894 eastbound).
-- Per stop: buses due in the next 10 minutes, soonest first, 3 rows visible;
-  more rows auto-scroll inside the fixed viewport. `NOW` when under a
-  minute; buses linger ~45 s past due.
+- Per stop: buses due in the next 10 minutes, soonest first, 3 rows visible.
+  When more qualify, the list scrolls down exactly once (2 s per hidden
+  row), timed to reach the end 1 s before the screen transition, and holds
+  there until the flip. `NOW` when under a minute; buses linger ~45 s past
+  due.
 - MIN value color: green = live and updated ≤45 s ago, orange = live but
   update delayed, gray = scheduled (not yet departed).
 - Data refreshes every 15 s; countdown re-renders every second. Feed outage

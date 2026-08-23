@@ -12,7 +12,7 @@
             background:#0d0d0d; color:#e8e8e8; font-family:'IBM Plex Mono',monospace;
             box-sizing:border-box; display:flex; flex-direction:column; padding:30px 44px;
             overflow:hidden; }
-  @keyframes bnb-scroll { 0%,8% { transform:translateY(0); } 92%,100% { transform:translateY(-50%); } }
+  @keyframes bnb-scroll-once { from { transform:translateY(0); } to { transform:translateY(var(--scroll-end)); } }
 
   .hdr { display:flex; justify-content:space-between; align-items:baseline; flex:0 0 auto; }
   .hdr .title { font-size:26px; font-weight:600; letter-spacing:0.02em; }
@@ -74,15 +74,19 @@ const PAGES = [
 ];
 const PAGE_LABELS = ["[ N/S ]  E/W ", "  N/S  [ E/W ]"];
 const FLAP_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const PAGE_SECONDS = 15;                     // screen transition cadence
+const SCROLL_FINISH_S = PAGE_SECONDS - 1;    // scrolling ends 1s before the transition
+const SCROLL_ROW_S = 2;                      // pace: seconds per hidden row
+const SCROLL_START_MIN_S = 3;                // always leave time to read the top rows
 
 let stopsData = {};        // code -> [{line, destination, operator, due, live, updatedAt}]
 let page = 0;
+let pageShownAt = Date.now();
 let flapP = null;          // split-flap progress 0..1, null when idle
 let error = false;
 let lastGood = null;
 let transitioning = false;
 let flapTimer = null;
-const scrollMeta = {};     // code -> {n, start} to keep scroll phase across re-renders
 
 const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -123,6 +127,7 @@ function startTransition() {
   transitioning = true;
   setTimeout(() => { transitioning = false; }, 2000);
   page = 1 - page;                    // swap data instantly, then scramble 1.5s
+  pageShownAt = Date.now();
   const t0 = Date.now();
   clearInterval(flapTimer);
   flapTimer = setInterval(() => {
@@ -159,20 +164,22 @@ function buildStop(stop) {
     </div>`;
   }).join("");
 
-  const scrolls = list.length > 3;
-  let anim = "none";
-  if (scrolls) {
-    const dur = list.length * 5;
-    let meta = scrollMeta[stop.code];
-    if (!meta || meta.n !== list.length) meta = scrollMeta[stop.code] = { n: list.length, start: now };
-    anim = `bnb-scroll ${dur}s linear infinite`;
-    anim += `;animation-delay:-${((now - meta.start) / 1000) % dur}s`;
-  } else {
-    delete scrollMeta[stop.code];
+  // Single-pass scroll: hold on the top rows, scroll once, reach the end at
+  // SCROLL_FINISH_S (1s before the screen transition) and stop there.
+  let style = "";
+  if (list.length > 3) {
+    const dist = (list.length - 3) * 90;
+    const dur = Math.min((list.length - 3) * SCROLL_ROW_S, SCROLL_FINISH_S - SCROLL_START_MIN_S);
+    const start = SCROLL_FINISH_S - dur;
+    const elapsed = (now - pageShownAt) / 1000;
+    style = `--scroll-end:-${dist}px`;
+    if (elapsed >= start) {
+      style += `;animation:bnb-scroll-once ${dur}s linear forwards;animation-delay:${(start - elapsed).toFixed(3)}s`;
+    }
   }
 
   const body = list.length
-    ? `<div class="rows-vp"><div style="animation:${anim}">${scrolls ? rowsHtml + rowsHtml : rowsHtml}</div></div>`
+    ? `<div class="rows-vp"><div style="${style}">${rowsHtml}</div></div>`
     : `<div class="empty">NO BUSES EXPECTED IN THE NEXT 10 MINUTES</div>`;
 
   return `<div class="col">
@@ -213,7 +220,7 @@ fit();
 fetchData();
 setInterval(render, 1000);
 setInterval(fetchData, 15000);
-setInterval(startTransition, 10000);
+setInterval(startTransition, PAGE_SECONDS * 1000);
 </script>
 </body>
 </html>

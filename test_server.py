@@ -173,19 +173,22 @@ class FrontendContractTest(unittest.TestCase):
         self.assertIn("window.innerWidth / 1024", self.html)
         self.assertIn("window.innerHeight / 768", self.html)
 
-    def test_timings_15s_fetch_10s_pages_1s_tick(self):
+    def test_timings_15s_fetch_15s_pages_1s_tick(self):
         self.assertIn("setInterval(fetchData, 15000)", self.html)
-        self.assertIn("setInterval(startTransition, 10000)", self.html)
+        self.assertIn("PAGE_SECONDS = 15", self.html)
+        self.assertIn("setInterval(startTransition, PAGE_SECONDS * 1000)", self.html)
         self.assertIn("setInterval(render, 1000)", self.html)
 
     def test_ten_minute_window_client_side(self):
         self.assertIn("b.mins > -0.75 && b.mins <= 10", self.html)
 
-    def test_three_row_viewport_with_autoscroll(self):
+    def test_three_row_viewport_with_single_pass_scroll(self):
         self.assertIn("height:270px", self.html)
-        self.assertIn("0%,8% { transform:translateY(0); } 92%,100% { transform:translateY(-50%); }",
-                      self.html)
-        self.assertIn("list.length * 5", self.html)
+        # one pass, stops at the end (no infinite loop), ends 1s before the flip
+        self.assertIn("bnb-scroll-once", self.html)
+        self.assertIn("linear forwards", self.html)
+        self.assertNotIn("infinite", self.html)
+        self.assertIn("SCROLL_FINISH_S = PAGE_SECONDS - 1", self.html)
 
     def test_split_flap_settles_left_to_right(self):
         self.assertIn("0.15 + (i / Math.max(1, str.length)) * 0.8", self.html)
