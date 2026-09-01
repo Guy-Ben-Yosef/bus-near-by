@@ -1,0 +1,15 @@
+[Unit]
+Description=bus-near-by departure board server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/bus-near-by
+ExecStart=/usr/bin/python3 /home/pi/bus-near-by/server.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
