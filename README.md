@@ -24,8 +24,10 @@ Implements the `design_handoff_bus_near_by/` spec exactly:
 - Three screens rotating every 15 s with a split-flap character-shuffle
   transition: **N/S** (stop 25893 southbound | stop 23012 northbound),
   **E/W** (stop 20676 westbound | stop 25894 eastbound), and **WX** — a
-  weather screen with a large clock and date, current conditions, and a
-  next-2h rain timeline (orange bars = rain expected, gray = dry).
+  weather screen with a large clock and date, current conditions, a sun arc
+  (dot riding sunrise→sunset) with sunrise/sunset times, the moon phase and
+  illumination, and a next-2h rain timeline (orange bars = rain expected,
+  gray = dry).
 - Per stop: buses due in the next 10 minutes, soonest first, 6 rows visible.
   When more qualify, the list scrolls down exactly once (2 s per hidden
   row), timed to reach the end 1 s before the screen transition, and holds
@@ -46,9 +48,10 @@ failure returns 502, which the board renders as its error state.
 
 `GET /api/weather` (cached 5 min) proxies https://open-meteo.com — free, no
 API key — for the corner's coordinates: current temperature, feels-like,
-humidity, wind, and condition, plus 15-minute precipitation buckets for the
-next 2 h. Upstream failure returns 502 (the weather screen shows its own
-error state).
+humidity, wind, and condition, today's sunrise/sunset, plus 15-minute
+precipitation buckets for the next 2 h. Upstream failure returns 502 (the
+weather screen shows its own error state). Moon phase is computed client-side
+from the date (no API).
 
 ## Tests
 

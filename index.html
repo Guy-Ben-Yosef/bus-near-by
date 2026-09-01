@@ -52,13 +52,25 @@
   /* Weather screen (page 3): hero-centered clock, date, conditions, rain timeline */
   .wx { flex:1 1 0; display:flex; flex-direction:column; align-items:center;
         justify-content:center; min-height:0; text-align:center; }
-  .wx-time { font-size:184px; font-weight:700; line-height:0.82;
+  .wx-time { font-size:150px; font-weight:700; line-height:0.82;
              font-variant-numeric:tabular-nums; letter-spacing:0.01em; }
-  .wx-time .wx-sec { font-size:60px; font-weight:600; color:#8a8a8a;
-                     margin-left:14px; vertical-align:top; }
-  .wx-date { font-size:40px; font-weight:600; color:#c9c9c9; letter-spacing:0.08em; margin-top:20px; }
-  .wx-cond { font-size:28px; font-weight:600; color:#e8e8e8; margin-top:28px; letter-spacing:0.03em; }
-  .wx-rain { width:640px; margin-top:44px; }
+  .wx-time .wx-sec { font-size:50px; font-weight:600; color:#8a8a8a;
+                     margin-left:12px; vertical-align:top; }
+  .wx-date { font-size:36px; font-weight:600; color:#c9c9c9; letter-spacing:0.08em; margin-top:14px; }
+  .wx-cond { font-size:24px; font-weight:600; color:#e8e8e8; margin-top:20px; letter-spacing:0.03em; }
+
+  .wx-cel { display:flex; align-items:center; justify-content:center; gap:48px; margin-top:30px; }
+  .wx-sun { display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .wx-sun-arc { width:186px; height:auto; }
+  .wx-sun-times { display:flex; justify-content:space-between; width:172px;
+                  font-size:18px; color:#8a8a8a; font-variant-numeric:tabular-nums; letter-spacing:0.02em; }
+  .wx-cel-div { width:1px; height:84px; background:#3a3a3a; }
+  .wx-moon { display:flex; align-items:center; gap:16px; }
+  .wx-moon-disc { width:66px; height:66px; }
+  .wx-moon-txt .nm { font-size:20px; font-weight:600; letter-spacing:0.03em; }
+  .wx-moon-txt .il { font-size:16px; color:#8a8a8a; margin-top:5px; letter-spacing:0.04em; }
+
+  .wx-rain { width:640px; margin-top:30px; }
   .wx-rain-head { display:flex; justify-content:center; gap:14px; align-items:baseline;
                   font-size:18px; color:#8a8a8a; letter-spacing:0.08em; padding-bottom:10px; }
   .wx-rain-head .hl { font-size:22px; font-weight:700; letter-spacing:0.04em; }
@@ -106,6 +118,31 @@ const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT
 const pad2 = n => String(n).padStart(2, "0");
 const fmtDate = (d, withYear) =>
   `${DOW[d.getDay()]} ${pad2(d.getDate())} ${MON[d.getMonth()]}` + (withYear ? ` ${d.getFullYear()}` : "");
+// Always show sun/moon times in the board's own timezone, wherever it runs.
+const fmtLocalHM = iso => iso
+  ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" })
+  : "—";
+
+// Moon phase from date alone (no API): age within the synodic month gives the
+// illuminated fraction and whether it's waxing (growing) or waning.
+function moonInfo(date) {
+  const SYNODIC = 29.530588853;                         // days, new moon to new moon
+  const KNOWN_NEW = Date.UTC(2000, 0, 6, 18, 14, 0) / 86400000;
+  let phase = ((date.getTime() / 86400000 - KNOWN_NEW) / SYNODIC) % 1;
+  if (phase < 0) phase += 1;
+  const illum = (1 - Math.cos(2 * Math.PI * phase)) / 2; // 0 new .. 1 full
+  const waxing = phase < 0.5;
+  let name;
+  if (phase < 0.033 || phase > 0.967) name = "NEW MOON";
+  else if (phase < 0.217) name = "WAXING CRESCENT";
+  else if (phase < 0.283) name = "FIRST QUARTER";
+  else if (phase < 0.467) name = "WAXING GIBBOUS";
+  else if (phase < 0.533) name = "FULL MOON";
+  else if (phase < 0.717) name = "WANING GIBBOUS";
+  else if (phase < 0.783) name = "LAST QUARTER";
+  else name = "WANING CRESCENT";
+  return { phase, illum, waxing, name };
+}
 const VISIBLE_ROWS = 6;                      // rows in the 540px viewport
 const PAGE_SECONDS = 15;                     // screen transition cadence
 const SCROLL_FINISH_S = PAGE_SECONDS - 1;    // scrolling ends 1s before the transition
@@ -231,7 +268,7 @@ function buildStop(stop) {
 
   const body = list.length
     ? `<div class="rows-vp"><div style="${style}">${rowsHtml}</div></div>`
-    : `<div class="empty">NO BUSES EXPECTED IN THE NEXT 10 MINUTES</div>`;
+    : `<div class="empty">${flap("NO BUSES EXPECTED IN THE NEXT 10 MINUTES")}</div>`;
 
   return `<div class="col">
     <div class="dirhdr">
@@ -283,10 +320,53 @@ function buildWeather() {
     return `<div class="wx-bar" style="height:${h}%;background:${rainy ? "#d99a4e" : "#3a3a3a"}"></div>`;
   }).join("");
 
+  // Sun arc: a dot riding a half-circle from sunrise (left) to sunset (right),
+  // at the fraction of daylight elapsed. Orange by day, gray after dark.
+  const sr = w.sunrise ? new Date(w.sunrise) : null;
+  const ss = w.sunset ? new Date(w.sunset) : null;
+  let f = 0.5, isDay = false;
+  if (sr && ss && ss > sr) {
+    const raw = (now - sr) / (ss - sr);
+    isDay = raw >= 0 && raw <= 1;
+    f = Math.max(0, Math.min(1, raw));
+  }
+  const R = 78;
+  const sunX = (R * Math.cos(Math.PI * (1 - f))).toFixed(1);
+  const sunY = (-R * Math.sin(Math.PI * (1 - f))).toFixed(1);
+  const sunColor = isDay ? "#d99a4e" : "#6a6a6a";
+  const sunSvg = `<svg class="wx-sun-arc" viewBox="-94 -94 188 108" fill="none">
+      <line x1="-86" y1="0" x2="86" y2="0" stroke="#2a2a2a" stroke-width="2"/>
+      <path d="M -78 0 A 78 78 0 0 1 78 0" stroke="#3a3a3a" stroke-width="2" stroke-dasharray="3 6"/>
+      <circle cx="${sunX}" cy="${sunY}" r="8" fill="${sunColor}"/>
+    </svg>`;
+
+  // Moon: a disc lit from one side by the current phase (illuminated fraction).
+  const moon = moonInfo(now);
+  const MR = 30, off = (moon.waxing ? -1 : 1) * 2 * MR * moon.illum;
+  const moonSvg = `<svg class="wx-moon-disc" viewBox="-34 -34 68 68">
+      <defs><clipPath id="moonclip"><circle r="30"/></clipPath></defs>
+      <circle r="30" fill="#1c1c1a"/>
+      <circle r="30" fill="#d8d6cc" clip-path="url(#moonclip)"/>
+      <circle r="30" cx="${off.toFixed(1)}" fill="#1c1c1a" clip-path="url(#moonclip)"/>
+      <circle r="30" fill="none" stroke="#4a4a4a" stroke-width="1.5"/>
+    </svg>`;
+  const moonPct = Math.round(moon.illum * 100) + "% LIT";
+
   return `<div class="wx">
     <div class="wx-time">${flap(time)}<span class="wx-sec">${flap(sec)}</span></div>
     <div class="wx-date">${flap(date)}</div>
     <div class="wx-cond">${esc(flap(condLine))}</div>
+    <div class="wx-cel">
+      <div class="wx-sun">
+        ${sunSvg}
+        <div class="wx-sun-times"><span>↑ ${flap(fmtLocalHM(w.sunrise))}</span><span>↓ ${flap(fmtLocalHM(w.sunset))}</span></div>
+      </div>
+      <div class="wx-cel-div"></div>
+      <div class="wx-moon">
+        ${moonSvg}
+        <div class="wx-moon-txt"><div class="nm">${flap(moon.name)}</div><div class="il">${flap(moonPct)}</div></div>
+      </div>
+    </div>
     <div class="wx-rain">
       <div class="wx-rain-head"><span>RAIN · NEXT 2H</span><span class="hl" style="color:${headColor}">${flap(head)}</span></div>
       <div class="wx-bars">${bars}</div>

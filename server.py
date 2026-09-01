@@ -119,11 +119,13 @@ def build_weather():
     params = ("?latitude=%s&longitude=%s"
               "&current=temperature_2m,apparent_temperature,relative_humidity_2m,"
               "wind_speed_10m,weather_code"
+              "&daily=sunrise,sunset"
               "&minutely_15=precipitation,precipitation_probability"
               "&forecast_days=1&timezone=UTC") % TEL_AVIV
     data = http_json(OPEN_METEO + params)
 
     cur = data.get("current") or {}
+    daily = data.get("daily") or {}
     m = data.get("minutely_15") or {}
     times = m.get("time") or []
     precip = m.get("precipitation") or []
@@ -138,6 +140,15 @@ def build_weather():
             continue
         rain.append({"t": bt.isoformat(), "mm": mm or 0, "prob": pp or 0})
 
+    def first_utc_iso(key):
+        arr = daily.get(key) or []
+        if not arr or not arr[0]:
+            return None
+        d = parse_dt(arr[0])
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return d.isoformat()
+
     code = int(cur.get("weather_code") or 0)
     return {
         "temp": _round(cur.get("temperature_2m")),
@@ -146,6 +157,8 @@ def build_weather():
         "wind": _round(cur.get("wind_speed_10m")),
         "code": code,
         "condition": WMO.get(code, "—"),
+        "sunrise": first_utc_iso("sunrise"),
+        "sunset": first_utc_iso("sunset"),
         "rain": rain,
         "updated_at": now.isoformat(),
     }
