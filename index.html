@@ -49,6 +49,25 @@
   .err .t { font-size:30px; font-weight:600; }
   .err .s { font-size:18px; color:#8a8a8a; }
 
+  /* Weather screen (page 3): hero-centered clock, date, conditions, rain timeline */
+  .wx { flex:1 1 0; display:flex; flex-direction:column; align-items:center;
+        justify-content:center; min-height:0; text-align:center; }
+  .wx-time { font-size:184px; font-weight:700; line-height:0.82;
+             font-variant-numeric:tabular-nums; letter-spacing:0.01em; }
+  .wx-time .wx-sec { font-size:60px; font-weight:600; color:#8a8a8a;
+                     margin-left:14px; vertical-align:top; }
+  .wx-date { font-size:40px; font-weight:600; color:#c9c9c9; letter-spacing:0.08em; margin-top:20px; }
+  .wx-cond { font-size:28px; font-weight:600; color:#e8e8e8; margin-top:28px; letter-spacing:0.03em; }
+  .wx-rain { width:640px; margin-top:44px; }
+  .wx-rain-head { display:flex; justify-content:center; gap:14px; align-items:baseline;
+                  font-size:18px; color:#8a8a8a; letter-spacing:0.08em; padding-bottom:10px; }
+  .wx-rain-head .hl { font-size:22px; font-weight:700; letter-spacing:0.04em; }
+  .wx-bars { display:flex; align-items:flex-end; gap:8px; height:76px;
+             border-top:1px solid #222222; padding-top:14px; }
+  .wx-bar { flex:1 1 0; border-radius:2px 2px 0 0; min-height:4px; }
+  .wx-axis { display:flex; justify-content:space-between; font-size:14px; color:#6a6a6a;
+             letter-spacing:0.08em; margin-top:8px; }
+
   .ftr { flex:0 0 auto; display:flex; justify-content:space-between; font-size:14px;
          color:#6a6a6a; border-top:1px solid #3a3a3a; padding-top:10px; margin-top:16px; }
   .ftr .page { white-space:pre; color:#9a9a9a; }
@@ -63,9 +82,9 @@
     </div>
     <div id="content"></div>
     <div class="ftr">
-      <span><span style="color:#8fbc8f">■</span> LIVE · <span style="color:#d99a4e">■</span> LIVE, UPDATE DELAYED · <span style="color:#9a9a9a">■</span> SCHEDULED</span>
+      <span id="ftr-left"></span>
       <span class="page" id="page-label"></span>
-      <span>NEXT 10 MIN · REFRESH 15S</span>
+      <span id="ftr-right"></span>
     </div>
   </div>
 </div>
@@ -76,8 +95,17 @@ const PAGES = [
   [{ code: "20676", direction: "WESTBOUND", arrow: "←" },
    { code: "25894", direction: "EASTBOUND", arrow: "→" }],
 ];
-const PAGE_LABELS = ["[ N/S ]  E/W ", "  N/S  [ E/W ]"];
+const PAGE_LABELS = ["[ N/S ]  E/W   WX ", "  N/S  [ E/W ]  WX ", "  N/S   E/W  [ WX ]"];
+const PAGE_COUNT = 3;                        // N/S, E/W, weather
+const WEATHER_PAGE = 2;
+const FTR_LEGEND = '<span style="color:#8fbc8f">■</span> LIVE · <span style="color:#d99a4e">■</span> LIVE, UPDATE DELAYED · <span style="color:#9a9a9a">■</span> SCHEDULED';
+const FTR_NOTE = "NEXT 10 MIN · REFRESH 15S";
 const FLAP_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const DOW = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const pad2 = n => String(n).padStart(2, "0");
+const fmtDate = (d, withYear) =>
+  `${DOW[d.getDay()]} ${pad2(d.getDate())} ${MON[d.getMonth()]}` + (withYear ? ` ${d.getFullYear()}` : "");
 const VISIBLE_ROWS = 6;                      // rows in the 540px viewport
 const PAGE_SECONDS = 15;                     // screen transition cadence
 const SCROLL_FINISH_S = PAGE_SECONDS - 1;    // scrolling ends 1s before the transition
@@ -88,6 +116,8 @@ const MARQUEE_GAP_PX = 60;                   // gap between the tail and the rep
 const MARQUEE_EPOCH = Date.now();            // shared clock so re-renders don't restart the scroll
 
 let stopsData = {};        // code -> [{line, destination, operator, due, live, updatedAt}]
+let weather = null;        // {temp, feels, humidity, wind, condition, rain:[{t,mm,prob}], updated_at}
+let weatherError = false;
 let page = 0;
 let pageShownAt = Date.now();
 let flapP = null;          // split-flap progress 0..1, null when idle
@@ -130,11 +160,23 @@ async function fetchData() {
   render();
 }
 
+async function fetchWeather() {
+  try {
+    const res = await fetch("/api/weather");
+    if (!res.ok) throw new Error(res.status);
+    weather = await res.json();
+    weatherError = false;
+  } catch (e) {
+    weatherError = true;
+  }
+  if (page === WEATHER_PAGE) render();
+}
+
 function startTransition() {
   if (transitioning) return;          // guard against overlapping transitions
   transitioning = true;
   setTimeout(() => { transitioning = false; }, 2000);
-  page = 1 - page;                    // swap data instantly, then scramble 1.5s
+  page = (page + 1) % PAGE_COUNT;     // advance N/S -> E/W -> WX, then scramble 1.5s
   pageShownAt = Date.now();
   const t0 = Date.now();
   clearInterval(flapTimer);
@@ -201,15 +243,84 @@ function buildStop(stop) {
   </div>`;
 }
 
+function buildWeather() {
+  if (weatherError || !weather) {
+    return `<div class="err">
+      <div class="t">${flap("WEATHER DATA UNAVAILABLE")}</div>
+      <div class="s">ATTEMPTING RECONNECT</div>
+    </div>`;
+  }
+  const w = weather, now = new Date();
+  const time = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const sec = pad2(now.getSeconds());
+  const date = fmtDate(now, true);
+
+  const temp = w.temp == null ? "—" : w.temp + "°";
+  const parts = [temp + " · " + (w.condition || "—")];
+  if (w.feels != null) parts.push("FEELS " + w.feels + "°");
+  if (w.humidity != null) parts.push("HUMIDITY " + w.humidity + "%");
+  const condLine = parts.join(" · ");
+
+  // Rain timeline: 15-min buckets over the next 2h. Orange = rain expected,
+  // gray = dry; bar height tracks intensity (mm) or, absent that, probability.
+  const rain = w.rain || [];
+  let firstRain = -1;
+  for (let i = 0; i < rain.length; i++) {
+    if ((rain[i].mm || 0) > 0.05 || (rain[i].prob || 0) >= 25) { firstRain = i; break; }
+  }
+  let head, headColor;
+  if (firstRain < 0) { head = "NO RAIN NEXT 2H"; headColor = "#8fbc8f"; }
+  else {
+    const mins = Math.round((new Date(rain[firstRain].t) - now) / 60000);
+    head = mins <= 7 ? "RAIN NOW" : "RAIN IN ~" + (Math.round(mins / 5) * 5) + " MIN";
+    headColor = "#d99a4e";
+  }
+  const bars = rain.map(b => {
+    const mm = b.mm || 0, prob = b.prob || 0;
+    const level = Math.max(Math.min(1, mm / 1.2), (prob / 100) * 0.9);
+    const h = Math.round(4 + level * 96);
+    const rainy = mm > 0.05 || prob >= 25;
+    return `<div class="wx-bar" style="height:${h}%;background:${rainy ? "#d99a4e" : "#3a3a3a"}"></div>`;
+  }).join("");
+
+  return `<div class="wx">
+    <div class="wx-time">${flap(time)}<span class="wx-sec">${flap(sec)}</span></div>
+    <div class="wx-date">${flap(date)}</div>
+    <div class="wx-cond">${esc(flap(condLine))}</div>
+    <div class="wx-rain">
+      <div class="wx-rain-head"><span>RAIN · NEXT 2H</span><span class="hl" style="color:${headColor}">${flap(head)}</span></div>
+      <div class="wx-bars">${bars}</div>
+      <div class="wx-axis"><span>NOW</span><span>+1H</span><span>+2H</span></div>
+    </div>
+  </div>`;
+}
+
 function render() {
   const nowd = new Date();
   document.getElementById("clock-time").textContent = nowd.toLocaleTimeString("en-GB",
     { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  document.getElementById("clock-date").textContent = nowd.toLocaleDateString("en-GB",
-    { weekday: "short", day: "2-digit", month: "short" }).toUpperCase();
+  document.getElementById("clock-date").textContent = fmtDate(nowd, false);
   document.getElementById("page-label").textContent = PAGE_LABELS[page];
+  // The weather page is its own big clock, so hide the small header one there.
+  document.getElementById("clock").style.visibility = page === WEATHER_PAGE ? "hidden" : "visible";
+
+  const left = document.getElementById("ftr-left");
+  const right = document.getElementById("ftr-right");
+  if (page === WEATHER_PAGE) {
+    left.textContent = "WEATHER · OPEN-METEO";
+    right.textContent = weather && weather.updated_at
+      ? "UPDATED " + new Date(weather.updated_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+      : "TEL AVIV";
+  } else {
+    left.innerHTML = FTR_LEGEND;
+    right.textContent = FTR_NOTE;
+  }
 
   const content = document.getElementById("content");
+  if (page === WEATHER_PAGE) {
+    content.innerHTML = buildWeather();
+    return;
+  }
   if (error) {
     const age = lastGood == null ? null : Math.floor((Date.now() - lastGood) / 1000);
     const ageText = age == null ? "—" : (age < 60 ? age + "S" : Math.floor(age / 60) + " MIN");
@@ -252,8 +363,10 @@ function fit() {
 window.addEventListener("resize", fit);
 fit();
 fetchData();
+fetchWeather();
 setInterval(render, 1000);
 setInterval(fetchData, 15000);
+setInterval(fetchWeather, 300000);   // weather moves slowly; refresh every 5 min
 setInterval(startTransition, PAGE_SECONDS * 1000);
 </script>
 </body>

@@ -31,6 +31,27 @@ HORIZON_MIN = 15     # serve a bit past the board's 10-min window; the client tr
 DROPOFF_SEC = 45     # keep buses briefly after their due time, per design
 CACHE_TTL_SEC = 10
 
+# Weather screen: Open-Meteo (free, no key) for the corner of Tel Aviv the
+# board watches. Weather moves slowly, so cache far longer than arrivals.
+OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
+TEL_AVIV = (32.0853, 34.7818)         # lat, lon — Milano Square / Ibn Gvirol
+WEATHER_CACHE_TTL_SEC = 300           # 5 min
+RAIN_HORIZON_H = 2                    # rain timeline window on the board
+
+# WMO weather codes -> the board's uppercase condition text.
+WMO = {
+    0: "CLEAR", 1: "MAINLY CLEAR", 2: "PARTLY CLOUDY", 3: "OVERCAST",
+    45: "FOG", 48: "FOG",
+    51: "DRIZZLE", 53: "DRIZZLE", 55: "DRIZZLE",
+    56: "FREEZING DRIZZLE", 57: "FREEZING DRIZZLE",
+    61: "RAIN", 63: "RAIN", 65: "HEAVY RAIN",
+    66: "FREEZING RAIN", 67: "FREEZING RAIN",
+    71: "SNOW", 73: "SNOW", 75: "HEAVY SNOW", 77: "SNOW GRAINS",
+    80: "SHOWERS", 81: "SHOWERS", 82: "VIOLENT SHOWERS",
+    85: "SNOW SHOWERS", 86: "SNOW SHOWERS",
+    95: "THUNDERSTORM", 96: "THUNDERSTORM", 99: "THUNDERSTORM",
+}
+
 STATIC_DIR = Path(__file__).parent
 
 
@@ -89,8 +110,51 @@ def build_payload():
     }
 
 
+def _round(x):
+    return round(x) if isinstance(x, (int, float)) else None
+
+
+def build_weather():
+    now = utcnow()
+    params = ("?latitude=%s&longitude=%s"
+              "&current=temperature_2m,apparent_temperature,relative_humidity_2m,"
+              "wind_speed_10m,weather_code"
+              "&minutely_15=precipitation,precipitation_probability"
+              "&forecast_days=1&timezone=UTC") % TEL_AVIV
+    data = http_json(OPEN_METEO + params)
+
+    cur = data.get("current") or {}
+    m = data.get("minutely_15") or {}
+    times = m.get("time") or []
+    precip = m.get("precipitation") or []
+    prob = m.get("precipitation_probability") or []
+
+    rain = []
+    for t, mm, pp in zip(times, precip, prob):
+        bt = parse_dt(t)
+        if bt.tzinfo is None:
+            bt = bt.replace(tzinfo=timezone.utc)
+        if bt < now - timedelta(minutes=15) or bt > now + timedelta(hours=RAIN_HORIZON_H):
+            continue
+        rain.append({"t": bt.isoformat(), "mm": mm or 0, "prob": pp or 0})
+
+    code = int(cur.get("weather_code") or 0)
+    return {
+        "temp": _round(cur.get("temperature_2m")),
+        "feels": _round(cur.get("apparent_temperature")),
+        "humidity": _round(cur.get("relative_humidity_2m")),
+        "wind": _round(cur.get("wind_speed_10m")),
+        "code": code,
+        "condition": WMO.get(code, "—"),
+        "rain": rain,
+        "updated_at": now.isoformat(),
+    }
+
+
 _cache = {"at": 0.0, "payload": None}
 _cache_lock = threading.Lock()
+_wcache = {"at": 0.0, "payload": None}
+_wcache_lock = threading.Lock()
 
 
 def cached_payload():
@@ -102,11 +166,22 @@ def cached_payload():
         return _cache["payload"]
 
 
+def cached_weather():
+    with _wcache_lock:
+        if time.time() - _wcache["at"] < WEATHER_CACHE_TTL_SEC and _wcache["payload"]:
+            return _wcache["payload"]
+        _wcache["payload"] = build_weather()  # raises on failure -> 502 -> board error state
+        _wcache["at"] = time.time()
+        return _wcache["payload"]
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path.split("?")[0] == "/api/arrivals":
+        route = self.path.split("?")[0]
+        if route in ("/api/arrivals", "/api/weather"):
+            fetch = cached_payload if route == "/api/arrivals" else cached_weather
             try:
-                body = json.dumps(cached_payload(), ensure_ascii=False).encode()
+                body = json.dumps(fetch(), ensure_ascii=False).encode()
                 self._send(200, "application/json; charset=utf-8", body)
             except Exception as e:
                 body = json.dumps({"error": str(e)}).encode()
