@@ -17,7 +17,7 @@ Then open <http://localhost:8000>. No dependencies — Python 3 stdlib only.
 
 ## The board
 
-Implements the `design_handoff_bus_near_by/` spec exactly:
+Key behaviors:
 
 - Fixed 1024×768 canvas, uniformly scaled to fit the screen; IBM Plex Mono,
   all uppercase, dark Solari-board aesthetic.
