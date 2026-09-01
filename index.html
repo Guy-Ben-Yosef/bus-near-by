@@ -113,15 +113,26 @@ const WEATHER_PAGE = 2;
 const FTR_LEGEND = '<span style="color:#8fbc8f">■</span> LIVE · <span style="color:#d99a4e">■</span> LIVE, UPDATE DELAYED · <span style="color:#9a9a9a">■</span> SCHEDULED';
 const FTR_NOTE = "NEXT 10 MIN · REFRESH 15S";
 const FLAP_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const DOW = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 const pad2 = n => String(n).padStart(2, "0");
-const fmtDate = (d, withYear) =>
-  `${DOW[d.getDay()]} ${pad2(d.getDate())} ${MON[d.getMonth()]}` + (withYear ? ` ${d.getFullYear()}` : "");
-// Always show sun/moon times in the board's own timezone, wherever it runs.
-const fmtLocalHM = iso => iso
-  ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" })
-  : "—";
+// This is a Tel Aviv board: always show clock, date, ETAs, and sun/moon times
+// in its own timezone, whatever the host clock is set to (the Pi runs UTC/BST).
+const TZ = "Asia/Jerusalem";
+const HM = { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: TZ };
+const HMS = { ...HM, second: "2-digit" };
+const fmtHM = d => d.toLocaleTimeString("en-GB", HM);
+function tzParts(d) {
+  const f = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ, weekday: "short", day: "2-digit", month: "2-digit", year: "numeric",
+  }).formatToParts(d);
+  const g = t => f.find(p => p.type === t).value;
+  return { wd: g("weekday").toUpperCase(), day: g("day"), mon: +g("month"), year: g("year") };
+}
+const fmtDate = (d, withYear) => {
+  const p = tzParts(d);
+  return `${p.wd} ${p.day} ${MON[p.mon - 1]}` + (withYear ? ` ${p.year}` : "");
+};
+const fmtLocalHM = iso => iso ? new Date(iso).toLocaleTimeString("en-GB", HM) : "—";
 
 // Moon phase from date alone (no API): age within the synodic month gives the
 // illuminated fraction and whether it's waxing (growing) or waning.
@@ -239,7 +250,7 @@ function buildStop(stop) {
     const minsColor = !b.live ? "#9a9a9a" : (updAge <= 45 ? "#8fbc8f" : "#d99a4e");
     const rowColor = b.live ? "#e8e8e8" : "#9a9a9a";
     const statusColor = b.live ? "#c9c9c9" : "#6a6a6a";
-    const eta = b.due.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const eta = fmtHM(b.due);
     const minsText = isNow ? "NOW" : String(Math.max(0, Math.round(b.mins)));
     return `<div class="row">
       <span class="line">${esc(flap(b.line))}</span>
@@ -288,8 +299,8 @@ function buildWeather() {
     </div>`;
   }
   const w = weather, now = new Date();
-  const time = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  const sec = pad2(now.getSeconds());
+  const time = fmtHM(now);
+  const sec = pad2(now.getSeconds());   // seconds are identical in every timezone
   const date = fmtDate(now, true);
 
   const temp = w.temp == null ? "—" : w.temp + "°";
@@ -377,8 +388,7 @@ function buildWeather() {
 
 function render() {
   const nowd = new Date();
-  document.getElementById("clock-time").textContent = nowd.toLocaleTimeString("en-GB",
-    { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  document.getElementById("clock-time").textContent = nowd.toLocaleTimeString("en-GB", HMS);
   document.getElementById("clock-date").textContent = fmtDate(nowd, false);
   document.getElementById("page-label").textContent = PAGE_LABELS[page];
   // The weather page is its own big clock, so hide the small header one there.
@@ -389,7 +399,7 @@ function render() {
   if (page === WEATHER_PAGE) {
     left.textContent = "WEATHER · OPEN-METEO";
     right.textContent = weather && weather.updated_at
-      ? "UPDATED " + new Date(weather.updated_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+      ? "UPDATED " + fmtHM(new Date(weather.updated_at))
       : "TEL AVIV";
   } else {
     left.innerHTML = FTR_LEGEND;
