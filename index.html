@@ -346,8 +346,8 @@ function buildWeather() {
   const sunY = (-R * Math.sin(Math.PI * (1 - f))).toFixed(1);
   const sunColor = isDay ? "#d99a4e" : "#6a6a6a";
   const sunSvg = `<svg class="wx-sun-arc" viewBox="-94 -94 188 108" fill="none">
-      <line x1="-86" y1="0" x2="86" y2="0" stroke="#2a2a2a" stroke-width="2"/>
-      <path d="M -78 0 A 78 78 0 0 1 78 0" stroke="#3a3a3a" stroke-width="2" stroke-dasharray="3 6"/>
+      <line x1="-86" y1="0" x2="86" y2="0" stroke="#5a5a5a" stroke-width="2.5"/>
+      <path d="M -78 0 A 78 78 0 0 1 78 0" stroke="#8a8a8a" stroke-width="3.5" stroke-dasharray="4 6" stroke-linecap="round"/>
       <circle cx="${sunX}" cy="${sunY}" r="8" fill="${sunColor}"/>
     </svg>`;
 
