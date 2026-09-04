@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bathroom humidity — status light algorithm</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d0d0d; --panel:#141414; --line:#3a3a3a; --faint:#242424;
+    --fg:#e8e8e8; --dim:#8a8a8a; --faded:#6a6a6a;
+    --green:#8fbc8f; --amber:#d99a4e; --red:#c25b4e;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--bg);}
+  body{font-family:'IBM Plex Mono',monospace;color:var(--fg);padding:44px 30px 60px;}
+  .wrap{max-width:1080px;margin:0 auto;}
+
+  h1{font-size:26px;font-weight:600;letter-spacing:0.02em;margin:0 0 10px;text-transform:uppercase;}
+  .sub{font-size:15px;color:var(--dim);line-height:1.7;margin:0 0 8px;}
+  .sub b{color:var(--fg);font-weight:600;}
+  hr{border:0;border-top:1px solid var(--line);margin:26px 0 30px;}
+  h2{font-size:14px;font-weight:600;letter-spacing:0.14em;color:var(--dim);
+     text-transform:uppercase;margin:0 0 18px;}
+
+  /* flow: fixed centre spine, branches peel off to the right */
+  .step{display:grid;grid-template-columns:1fr 430px 1fr;align-items:center;}
+  .node{grid-column:2;border:1px solid var(--line);background:var(--panel);
+        border-radius:4px;padding:13px 16px;text-align:center;}
+  .node .q{font-size:15px;font-weight:600;letter-spacing:0.01em;}
+  .node .n{font-size:12.5px;color:var(--faded);margin-top:6px;letter-spacing:0.02em;}
+  .start{border-style:dashed;background:transparent;}
+
+  /* width:0 so a long outcome pill overflows instead of widening its track,
+     which would shove the centre spine off-axis */
+  .branch{grid-column:3;display:flex;align-items:center;gap:9px;padding-left:14px;
+          width:0;overflow:visible;}
+  .arm{color:var(--faint);font-size:15px;letter-spacing:-1px;}
+  .lbl{font-size:11px;color:var(--faded);letter-spacing:0.12em;}
+
+  .pill{display:inline-flex;align-items:center;gap:9px;border:1px solid;border-radius:999px;
+        padding:7px 15px;font-size:13px;font-weight:600;letter-spacing:0.06em;white-space:nowrap;}
+  .dot{width:11px;height:11px;border-radius:50%;flex:0 0 auto;}
+  .green{color:var(--green);border-color:#2f4a2f;} .green .dot{background:var(--green);}
+  .amber{color:var(--amber);border-color:#523a1c;} .amber .dot{background:var(--amber);}
+  .red{color:var(--red);border-color:#4d2621;}     .red .dot{background:var(--red);}
+
+  .link{grid-column:2;display:flex;flex-direction:column;align-items:center;
+        color:var(--faded);font-size:11px;letter-spacing:0.12em;padding:3px 0;}
+  .link .v{color:var(--faint);font-size:17px;line-height:1;}
+
+  .final{grid-column:2;display:flex;justify-content:center;padding-top:4px;}
+  .final .pill{font-size:14px;padding:9px 18px;}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--faint);vertical-align:top;}
+  th{color:var(--dim);font-weight:600;letter-spacing:0.08em;font-size:11.5px;text-transform:uppercase;}
+  td.k{color:var(--fg);white-space:nowrap;}
+  td.v{color:var(--amber);white-space:nowrap;font-variant-numeric:tabular-nums;}
+  td.d{color:var(--dim);line-height:1.6;}
+
+  .ex{border:1px solid var(--line);border-radius:4px;padding:16px 18px;background:var(--panel);
+      font-size:13.5px;color:var(--dim);line-height:1.9;}
+  .ex .h{color:var(--fg);font-weight:600;letter-spacing:0.06em;margin-bottom:9px;font-size:12.5px;
+         text-transform:uppercase;}
+  .ex code{color:var(--fg);}
+  .foot{margin-top:30px;font-size:12.5px;color:var(--faded);line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Bathroom humidity · status light</h1>
+  <p class="sub">
+    Answers one question: <b>did someone shower and leave the window shut?</b>
+    The trick is that a normal shower and a stuck one look identical at their peak —
+    what separates them is <b>whether the humidity comes back down</b>. So the light
+    reads the <b>shape</b> of the curve over time, not how high it got.
+  </p>
+  <p class="sub">
+    Everything is measured against a <b>rolling baseline</b> — the 25th percentile of the
+    last 24 hours — so "elevated" means elevated <i>for this week</i>. A humid Tel Aviv
+    summer and a dry winter both work with no retuning.
+  </p>
+
+  <hr>
+  <h2>The decision</h2>
+
+  <div class="step">
+    <div class="node start">
+      <div class="q">Latest reading + 24 h baseline</div>
+      <div class="n">one sample every ~30 s · 6 h of history in hand</div>
+    </div>
+  </div>
+  <div class="step"><div class="link"><span class="v">↓</span></div></div>
+
+  <div class="step">
+    <div class="node">
+      <div class="q">Is it above baseline + 5 pts?</div>
+      <div class="n">is the room damp at all right now?</div>
+    </div>
+    <div class="branch">
+      <span class="arm">──▸</span><span class="lbl">NO</span>
+      <span class="pill green"><span class="dot"></span>GREEN · NORMAL</span>
+    </div>
+  </div>
+  <div class="step"><div class="link"><span class="v">↓</span><span>YES</span></div></div>
+
+  <div class="step">
+    <div class="node">
+      <div class="q">Did it get there via a sharp rise?</div>
+      <div class="n">≥ 6 pts within 15 min — a shower, not a slow drift</div>
+    </div>
+    <div class="branch">
+      <span class="arm">──▸</span><span class="lbl">NO</span>
+      <span class="pill green"><span class="dot"></span>GREEN · SLOW DRIFT</span>
+    </div>
+  </div>
+  <div class="step"><div class="link"><span class="v">↓</span><span>YES</span></div></div>
+
+  <div class="step">
+    <div class="node">
+      <div class="q">Elevated for less than 30 min?</div>
+      <div class="n">grace period — a vented room clears in 10–20 min</div>
+    </div>
+    <div class="branch">
+      <span class="arm">──▸</span><span class="lbl">YES</span>
+      <span class="pill amber"><span class="dot"></span>AMBER · DRYING</span>
+    </div>
+  </div>
+  <div class="step"><div class="link"><span class="v">↓</span><span>NO</span></div></div>
+
+  <div class="step">
+    <div class="node">
+      <div class="q">Is it still coming down?</div>
+      <div class="n">recovered ≥ 50 % from the peak, <i>or</i> falling ≥ 1.5 pts in 10 min</div>
+    </div>
+    <div class="branch">
+      <span class="arm">──▸</span><span class="lbl">YES</span>
+      <span class="pill amber"><span class="dot"></span>AMBER · SLOW BUT CLEARING</span>
+    </div>
+  </div>
+  <div class="step"><div class="link"><span class="v">↓</span><span>NO — IT HAS STALLED</span></div></div>
+
+  <div class="step">
+    <div class="final">
+      <span class="pill red"><span class="dot"></span>RED · STUCK — “OPEN THE WINDOW”</span>
+    </div>
+  </div>
+
+  <hr>
+  <h2>The knobs</h2>
+  <table>
+    <tr><th>Constant</th><th>Value</th><th>What it decides</th></tr>
+    <tr><td class="k">HUM_ELEVATED_MARGIN</td><td class="v">5 pts</td>
+        <td class="d">How far above baseline counts as damp. Too low and normal fluctuation trips it.</td></tr>
+    <tr><td class="k">HUM_RISE_DELTA</td><td class="v">6 pts</td>
+        <td class="d">Size of jump that marks a shower — this is what keeps slow damp out of it.</td></tr>
+    <tr><td class="k">HUM_RISE_WINDOW_MIN</td><td class="v">15 min</td>
+        <td class="d">How fast that jump has to happen.</td></tr>
+    <tr><td class="k">HUM_STUCK_MIN</td><td class="v">30 min</td>
+        <td class="d">Grace period before a shower is even considered a problem.</td></tr>
+    <tr><td class="k">HUM_CLEARING_FRAC</td><td class="v">0.5</td>
+        <td class="d">How much of the peak must be recovered to still count as clearing.
+            <b style="color:var(--fg)">The main amber↔red dial.</b></td></tr>
+    <tr><td class="k">HUM_CLEARING_DROP</td><td class="v">1.5 pts / 10 min</td>
+        <td class="d">Fallback: falling this fast counts as clearing even if not much recovered yet.</td></tr>
+  </table>
+
+  <hr>
+  <h2>Worked example — a real reading</h2>
+  <div class="ex">
+    <div class="h">04 Sep, 13:38 · amber</div>
+    Baseline <code>60.4 %</code> → elevated starts at <code>65.4 %</code>.
+    Current <code>67.4 %</code>, so it <b>is</b> elevated.<br>
+    It arrived via a spike to <code>74.7 %</code>, so the light is armed.<br>
+    Elevated for <code>43 min</code> — past the 30 min grace, so now the trend decides.<br>
+    Recovered <code>(74.7 − 67.4) ÷ (74.7 − 60.4) = 51 %</code> — just over the 50 % line,
+    so it reads as <b style="color:var(--amber)">still clearing → amber</b>.<br>
+    <span style="color:var(--faded)">One point the other way and this would have been red.
+    That borderline is exactly the case to watch as more showers accumulate.</span>
+  </div>
+
+  <div class="foot">
+    Implemented as <code>humidity_status()</code> in <code>server.py</code> — a pure function,
+    so <code>HumidityStatusTest</code> can exercise it against synthetic traces
+    (quiet · clearing · stuck · still-falling · no-spike drift · winter baseline).
+    Decided server-side because the rolling baseline needs 24 h of history, far more
+    than the board is sent.<br>
+    Thresholds were derived from the sensor's own data and are <b>provisional</b> —
+    worth revisiting once a few weeks of real showers exist to check them against.
+  </div>
+
+</div>
+</body>
+</html>
