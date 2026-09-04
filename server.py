@@ -47,6 +47,61 @@ CLIMATE_DSN = os.environ.get("BNB_CLIMATE_DSN", "")
 CLIMATE_CACHE_TTL_SEC = 20            # sensor samples every ~30 s
 CLIMATE_WINDOW_MIN = 60               # the board plots the last hour
 CLIMATE_STALE_SEC = 600               # no reading in 10 min -> sensor offline
+CLIMATE_LOOKBACK_MIN = 360            # 6 h, enough to find a spike that never cleared
+CLIMATE_BASELINE_H = 24               # quiet level is the p25 of the last day
+
+# Humidity status light — "did someone shower and leave the window shut?".
+# Green: normal. Amber: it rose and is coming down (a shower behaving as
+# expected). Red: it rose and has stayed up. Baseline is rolling, so these
+# hold through the seasons instead of needing a retune each winter.
+HUM_ELEVATED_MARGIN = 5.0             # pts above baseline that count as elevated
+HUM_RISE_DELTA = 6.0                  # sharp climb that marks a shower
+HUM_RISE_WINDOW_MIN = 15              # ...measured over this span
+HUM_STUCK_MIN = 30                    # elevated this long without clearing -> red
+HUM_CLEARING_FRAC = 0.5               # recovered this share of the peak -> still clearing
+HUM_CLEARING_DROP = 1.5               # ...or falling at least this fast over 10 min
+
+
+def humidity_status(series, baseline, now=None):
+    """Classify the humidity trace. `series` is [(ts, pct)] per minute, ascending.
+
+    Only a sharp rise arms the light: a slow damp drift is not what we are
+    looking for, so it stays green.
+    """
+    out = {"status": "green", "baseline": baseline, "elevated_min": 0, "peak": None}
+    if not series or baseline is None:
+        return out
+    now = now or series[-1][0]
+    elevated_at = baseline + HUM_ELEVATED_MARGIN
+    current = series[-1][1]
+    if current <= elevated_at:
+        return out
+
+    # Walk back over the stretch that has been elevated without interruption.
+    i = len(series) - 1
+    while i > 0 and series[i - 1][1] > elevated_at:
+        i -= 1
+    elevated_min = (now - series[i][0]).total_seconds() / 60.0
+    peak = max(v for _, v in series[i:])
+    out.update(elevated_min=round(elevated_min, 1), peak=round(peak, 1))
+
+    # Did it get here via a shower-shaped jump, or just drift up?
+    lo = max(0, i - HUM_RISE_WINDOW_MIN)
+    hi = min(len(series), i + HUM_RISE_WINDOW_MIN + 1)
+    window = [v for _, v in series[lo:hi]]
+    if not window or (max(window) - min(window)) < HUM_RISE_DELTA:
+        return out                                    # no spike -> stays green
+
+    if elevated_min < HUM_STUCK_MIN:
+        out["status"] = "amber"                       # normal post-shower drying
+        return out
+
+    # Past the grace period: still falling is fine, stalled near the peak is not.
+    recovered = (peak - current) / (peak - baseline) if peak > baseline else 1.0
+    drop10 = series[-11][1] - current if len(series) >= 11 else 0.0
+    out["status"] = ("amber" if recovered >= HUM_CLEARING_FRAC or drop10 >= HUM_CLEARING_DROP
+                     else "red")
+    return out
 
 # WMO weather codes -> the board's uppercase condition text.
 WMO = {
@@ -193,8 +248,13 @@ def build_climate():
                 "       avg(humidity_pct), avg(temperature_c)"
                 "  FROM readings"
                 " WHERE ts > now() - make_interval(mins => %s)"
-                " GROUP BY 1 ORDER BY 1", (CLIMATE_WINDOW_MIN,))
+                " GROUP BY 1 ORDER BY 1", (CLIMATE_LOOKBACK_MIN,))
             rows = cur.fetchall()
+            cur.execute(
+                "SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY humidity_pct)"
+                "  FROM readings WHERE ts > now() - make_interval(hours => %s)",
+                (CLIMATE_BASELINE_H,))
+            baseline = cur.fetchone()[0]
     finally:
         conn.close()
 
@@ -206,11 +266,17 @@ def build_climate():
         at = at.replace(tzinfo=timezone.utc)
     age = (now - at).total_seconds()
 
-    series = []
+    full = []
     for m, h, t in rows:
         if m.tzinfo is None:
             m = m.replace(tzinfo=timezone.utc)
-        series.append({"t": m.isoformat(), "h": round(float(h), 1)})
+        full.append((m, float(h)))
+
+    status = humidity_status(full, None if baseline is None else float(baseline), now)
+
+    # The board only plots the last hour, so only that much goes over the wire.
+    cutoff = now - timedelta(minutes=CLIMATE_WINDOW_MIN)
+    series = [{"t": m.isoformat(), "h": round(v, 1)} for m, v in full if m > cutoff]
 
     return {
         "humidity": None if hum is None else round(float(hum), 1),
@@ -221,6 +287,7 @@ def build_climate():
         "window_min": CLIMATE_WINDOW_MIN,
         "series": series,
         "updated_at": now.isoformat(),
+        **status,
     }
 
 

@@ -160,6 +160,69 @@ class DesignConfigTest(unittest.TestCase):
         self.assertLessEqual(server.CACHE_TTL_SEC, 10)
 
 
+class HumidityStatusTest(unittest.TestCase):
+    """The status light: catch a shower that never got aired out, and only that.
+
+    Series are built per-minute ending at NOW, matching what the server feeds in.
+    """
+
+    BASE = 60.0                       # quiet baseline, as the p25 of a real day
+    NOW = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
+
+    def series(self, values):
+        """Values are oldest-first, one per minute, ending at NOW."""
+        start = self.NOW - timedelta(minutes=len(values) - 1)
+        return [(start + timedelta(minutes=i), v) for i, v in enumerate(values)]
+
+    def status(self, values):
+        return server.humidity_status(self.series(values), self.BASE, self.NOW)["status"]
+
+    def test_quiet_bathroom_is_green(self):
+        self.assertEqual(self.status([60.0 + (i % 3) * 0.4 for i in range(180)]), "green")
+
+    def test_shower_still_within_grace_is_amber(self):
+        # spike 10 min ago, only just started coming down
+        self.assertEqual(self.status([60.0] * 120 + [62, 66, 70, 74, 75] + [74, 73, 72, 71, 70]),
+                         "amber")
+
+    def test_shower_that_cleared_is_green_again(self):
+        # window open: back under baseline+margin well inside the grace period
+        self.assertEqual(self.status([60.0] * 120 + [64, 70, 75] + [70, 66, 62] + [60.5] * 30),
+                         "green")
+
+    def test_shower_stuck_high_is_red(self):
+        # spiked 60 min ago and has barely moved since — the case we care about
+        self.assertEqual(self.status([60.0] * 120 + [64, 70, 74, 75] + [74.5] * 60), "red")
+
+    def test_stuck_but_still_falling_stays_amber(self):
+        # past the grace period yet clearly on its way down: not stuck
+        decay = [75.0 - i * 0.25 for i in range(60)]      # 75 -> 60.25, still elevated early on
+        self.assertEqual(self.status([60.0] * 120 + [64, 70, 75] + decay[:40]), "amber")
+
+    def test_slow_damp_drift_without_a_spike_stays_green(self):
+        # no shower-shaped jump, so the light stays out of it by design
+        drift = [60.0 + i * 0.06 for i in range(180)]     # +10.8 pts over 3 h
+        self.assertGreater(drift[-1], self.BASE + server.HUM_ELEVATED_MARGIN)
+        self.assertEqual(self.status(drift), "green")
+
+    def test_baseline_shift_keeps_a_winter_shower_detectable(self):
+        # same shape at a much drier baseline must behave identically
+        winter = [35.0] * 120 + [39, 45, 49, 50] + [49.5] * 60
+        s = server.humidity_status(self.series(winter), 35.0, self.NOW)
+        self.assertEqual(s["status"], "red")
+
+    def test_reports_how_long_it_has_been_elevated(self):
+        s = server.humidity_status(
+            self.series([60.0] * 120 + [64, 70, 74, 75] + [74.5] * 60), self.BASE, self.NOW)
+        self.assertGreaterEqual(s["elevated_min"], server.HUM_STUCK_MIN)
+        self.assertAlmostEqual(s["peak"], 75.0, places=1)
+
+    def test_empty_or_unknown_baseline_is_green(self):
+        self.assertEqual(server.humidity_status([], 60.0, self.NOW)["status"], "green")
+        self.assertEqual(
+            server.humidity_status(self.series([80.0] * 60), None, self.NOW)["status"], "green")
+
+
 class FrontendContractTest(unittest.TestCase):
     """The board must keep the handed-off design's key behaviors."""
 

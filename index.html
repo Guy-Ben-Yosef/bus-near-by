@@ -121,14 +121,10 @@ const WEATHER_PAGE = 2;
 const FTR_LEGEND = '<span style="color:#8fbc8f">■</span> LIVE · <span style="color:#d99a4e">■</span> LIVE, UPDATE DELAYED · <span style="color:#9a9a9a">■</span> SCHEDULED';
 const FTR_NOTE = "NEXT 10 MIN · REFRESH 15S";
 const FLAP_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-// Bathroom humidity status light. Placeholder thresholds — swap in the real
-// algorithm here; everything else keys off whatever colour this returns.
+// Bathroom humidity. The status light is decided server-side (it needs a day
+// of history for the rolling baseline); the board just paints the verdict.
 const HUM_SCALE = [40, 95];                  // sparkline y-range, %
-function humColor(pct) {
-  if (pct >= 75) return "#c25b4e";           // red   — wet, still steaming
-  if (pct >= 58) return "#d99a4e";           // amber — drying out
-  return "#8fbc8f";                          // green — normal
-}
+const HUM_COLORS = { green: "#8fbc8f", amber: "#d99a4e", red: "#c25b4e" };
 const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 const pad2 = n => String(n).padStart(2, "0");
 // This is a Tel Aviv board: always show clock, date, ETAs, and sun/moon times
@@ -325,7 +321,7 @@ function buildHumidity() {
   // Hidden entirely (divider and all) when the sensor feed is unavailable.
   if (climateError || !climate || climate.humidity == null) return "";
   const pct = climate.humidity;
-  const color = climate.stale ? "#6a6a6a" : humColor(pct);
+  const color = climate.stale ? "#6a6a6a" : (HUM_COLORS[climate.status] || "#8fbc8f");
 
   // Plot against real time, not sample index, so sensor gaps read as gaps.
   const W = 132, H = 38, [LO, HI] = HUM_SCALE;
@@ -348,7 +344,12 @@ function buildHumidity() {
              <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.8" fill="${color}"/>`;
   }
 
-  const foot = climate.stale ? "SENSOR OFFLINE" : "LAST 60 MIN";
+  // The red state is the one worth acting on, so it says what to do.
+  const mins = Math.round(climate.elevated_min || 0);
+  const foot = climate.stale ? "SENSOR OFFLINE"
+             : climate.status === "red" ? "OPEN THE WINDOW"
+             : climate.status === "amber" ? "DRYING · " + mins + " MIN"
+             : "LAST 60 MIN";
   return `<div class="wx-cel-div"></div>
     <div class="wx-hum">
       <div class="wx-hum-top">

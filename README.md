@@ -66,8 +66,25 @@ unit loads). Unset, unreachable, or driver missing → 502, and the board
 hides the readout rather than showing an error. Readings older than 10 min
 render the status light gray with `SENSOR OFFLINE`.
 
-The humidity status light thresholds live in `humColor()` in `index.html`
-and are currently placeholders (green < 58 %, amber 58–75 %, red ≥ 75 %).
+### The humidity status light
+
+Answers one question: *did someone shower and leave the window shut?*
+
+- **Green** — normal, or damp that crept up slowly. A gradual drift never
+  arms the light; only a shower-shaped jump does.
+- **Amber** — it spiked and is coming down: either still inside the 30-minute
+  grace period, or past it but visibly still falling.
+- **Red** — it spiked and has *stopped* falling while still elevated. The
+  board switches the caption to `OPEN THE WINDOW`.
+
+`humidity_status()` in `server.py` decides this, and `HumidityStatusTest`
+covers the cases. The knobs are the `HUM_*` constants. "Elevated" is measured
+against a **rolling baseline** (the 25th percentile of the last 24 h), not a
+fixed number, so a Tel Aviv summer at 61 % indoors and a dry winter both work
+without retuning.
+
+Thresholds were picked from the sensor's own history and are provisional —
+worth revisiting once there are a few weeks of showers to check them against.
 
 ## Tests
 
