@@ -69,22 +69,33 @@ render the status light gray with `SENSOR OFFLINE`.
 ### The humidity status light
 
 Answers one question: *did someone shower and leave the window shut?*
+See `docs/humidity-algorithm.html` for the flowchart.
 
-- **Green** — normal, or damp that crept up slowly. A gradual drift never
-  arms the light; only a shower-shaped jump does.
-- **Amber** — it spiked and is coming down: either still inside the 30-minute
-  grace period, or past it but visibly still falling.
-- **Red** — it spiked and has *stopped* falling while still elevated. The
-  board switches the caption to `OPEN THE WINDOW`.
+- **Green** — nothing happened, or it has come back to within 2.5 pts of
+  where it started. A slow damp drift never arms the light; only a
+  shower-shaped jump does.
+- **Amber** — it spiked and is on its way back: inside the 30-minute grace
+  period, still visibly falling, or settled only a little above the start.
+- **Red** — it spiked and went flat *well* above where it started. The board
+  switches the caption to `OPEN THE WINDOW`.
 
-`humidity_status()` in `server.py` decides this, and `HumidityStatusTest`
-covers the cases. The knobs are the `HUM_*` constants. "Elevated" is measured
-against a **rolling baseline** (the 25th percentile of the last 24 h), not a
-fixed number, so a Tel Aviv summer at 61 % indoors and a dry winter both work
-without retuning.
+Everything is judged against **the level the room sat at just before the
+rise**, taken from the trace each time, so there are no absolute percentages
+to retune between summer and winter, and sensor downtime cannot skew the
+reference. "Current" is a 5-minute median so one noisy sample cannot flip the
+light.
 
-Thresholds were picked from the sensor's own history and are provisional —
-worth revisiting once there are a few weeks of showers to check them against.
+The non-obvious part: an aired-out bathroom does *not* return to its previous
+level promptly — wet surfaces keep evaporating, so it plateaus a couple of
+points above and stays there. **Flat does not mean stuck.** What marks a shut
+window is going flat a long way up, which is why red keys off `HUM_STUCK_EXCESS`
+(how far above the start it settled) rather than off the trend alone.
+
+`humidity_status()` in `server.py` decides it; the knobs are the `HUM_*`
+constants and `HumidityStatusTest` covers the cases, including both
+ventilated-shower shapes that an earlier trend-only version got wrong.
+Thresholds came from the sensor's own history and are provisional — worth
+revisiting once there are a few weeks of showers to check them against.
 
 ## Tests
 

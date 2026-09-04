@@ -72,14 +72,22 @@
   <h1>Bathroom humidity · status light</h1>
   <p class="sub">
     Answers one question: <b>did someone shower and leave the window shut?</b>
-    The trick is that a normal shower and a stuck one look identical at their peak —
-    what separates them is <b>whether the humidity comes back down</b>. So the light
-    reads the <b>shape</b> of the curve over time, not how high it got.
+    A normal shower and a stuck one look identical at their peak — what separates them
+    is <b>where things settle afterwards</b>. So the light reads the <b>shape</b> of the
+    curve over time, not how high it got.
   </p>
   <p class="sub">
-    Everything is measured against a <b>rolling baseline</b> — the 25th percentile of the
-    last 24 hours — so "elevated" means elevated <i>for this week</i>. A humid Tel Aviv
-    summer and a dry winter both work with no retuning.
+    Everything is measured against the <b>level the room sat at just before the shower</b>,
+    taken fresh from the trace each time. No fixed percentages and no long-run average, so
+    a humid Tel Aviv summer and a dry winter both work with no retuning — and a spell of
+    sensor downtime cannot skew the reference.
+  </p>
+  <p class="sub" style="border-left:2px solid var(--line);padding-left:14px;">
+    <b>The counter-intuitive part.</b> An aired-out bathroom does <i>not</i> promptly
+    return to its previous level: wet towels, walls and floor keep evaporating, so it
+    plateaus a couple of points above and sits there. <b>Flat does not mean stuck.</b>
+    A shut window shows itself by plateauing <i>far</i> above where it started — so the
+    test is the <b>size</b> of what is left, not the mere fact that it stopped falling.
   </p>
 
   <hr>
@@ -87,40 +95,48 @@
 
   <div class="step">
     <div class="node start">
-      <div class="q">Latest reading + 24 h baseline</div>
-      <div class="n">one sample every ~30 s · 6 h of history in hand</div>
+      <div class="q">Last 6 h of readings</div>
+      <div class="n">one sample every ~30 s, averaged per minute</div>
     </div>
   </div>
   <div class="step"><div class="link"><span class="v">↓</span></div></div>
 
   <div class="step">
     <div class="node">
-      <div class="q">Is it above baseline + 5 pts?</div>
-      <div class="n">is the room damp at all right now?</div>
-    </div>
-    <div class="branch">
-      <span class="arm">──▸</span><span class="lbl">NO</span>
-      <span class="pill green"><span class="dot"></span>GREEN · NORMAL</span>
-    </div>
-  </div>
-  <div class="step"><div class="link"><span class="v">↓</span><span>YES</span></div></div>
-
-  <div class="step">
-    <div class="node">
-      <div class="q">Did it get there via a sharp rise?</div>
+      <div class="q">Was there a sharp rise?</div>
       <div class="n">≥ 6 pts within 15 min — a shower, not a slow drift</div>
     </div>
     <div class="branch">
       <span class="arm">──▸</span><span class="lbl">NO</span>
-      <span class="pill green"><span class="dot"></span>GREEN · SLOW DRIFT</span>
+      <span class="pill green"><span class="dot"></span>GREEN · NOTHING HAPPENED</span>
     </div>
   </div>
   <div class="step"><div class="link"><span class="v">↓</span><span>YES</span></div></div>
 
   <div class="step">
+    <div class="node start">
+      <div class="q">Take the “before” level</div>
+      <div class="n">median of the 30 min preceding that rise</div>
+    </div>
+  </div>
+  <div class="step"><div class="link"><span class="v">↓</span></div></div>
+
+  <div class="step">
     <div class="node">
-      <div class="q">Elevated for less than 30 min?</div>
-      <div class="n">grace period — a vented room clears in 10–20 min</div>
+      <div class="q">Back within 2.5 pts of “before”?</div>
+      <div class="n">current = median of the last 5 min, so noise cannot flip it</div>
+    </div>
+    <div class="branch">
+      <span class="arm">──▸</span><span class="lbl">YES</span>
+      <span class="pill green"><span class="dot"></span>GREEN · RECOVERED</span>
+    </div>
+  </div>
+  <div class="step"><div class="link"><span class="v">↓</span><span>NO</span></div></div>
+
+  <div class="step">
+    <div class="node">
+      <div class="q">Less than 30 min since the rise?</div>
+      <div class="n">grace period — every shower is allowed to be damp</div>
     </div>
     <div class="branch">
       <span class="arm">──▸</span><span class="lbl">YES</span>
@@ -131,15 +147,27 @@
 
   <div class="step">
     <div class="node">
-      <div class="q">Is it still coming down?</div>
-      <div class="n">recovered ≥ 50 % from the peak, <i>or</i> falling ≥ 1.5 pts in 10 min</div>
+      <div class="q">Still visibly falling?</div>
+      <div class="n">down ≥ 1 pt over the last 20 min</div>
     </div>
     <div class="branch">
       <span class="arm">──▸</span><span class="lbl">YES</span>
-      <span class="pill amber"><span class="dot"></span>AMBER · SLOW BUT CLEARING</span>
+      <span class="pill amber"><span class="dot"></span>AMBER · STILL CLEARING</span>
     </div>
   </div>
-  <div class="step"><div class="link"><span class="v">↓</span><span>NO — IT HAS STALLED</span></div></div>
+  <div class="step"><div class="link"><span class="v">↓</span><span>NO — IT HAS GONE FLAT</span></div></div>
+
+  <div class="step">
+    <div class="node">
+      <div class="q">How far above “before” did it settle?</div>
+      <div class="n">the whole question: a little residue, or a roomful of trapped steam?</div>
+    </div>
+    <div class="branch">
+      <span class="arm">──▸</span><span class="lbl">&lt; 6 PTS</span>
+      <span class="pill amber"><span class="dot"></span>AMBER · AIRED OUT</span>
+    </div>
+  </div>
+  <div class="step"><div class="link"><span class="v">↓</span><span>≥ 6 PTS</span></div></div>
 
   <div class="step">
     <div class="final">
@@ -151,41 +179,53 @@
   <h2>The knobs</h2>
   <table>
     <tr><th>Constant</th><th>Value</th><th>What it decides</th></tr>
-    <tr><td class="k">HUM_ELEVATED_MARGIN</td><td class="v">5 pts</td>
-        <td class="d">How far above baseline counts as damp. Too low and normal fluctuation trips it.</td></tr>
     <tr><td class="k">HUM_RISE_DELTA</td><td class="v">6 pts</td>
         <td class="d">Size of jump that marks a shower — this is what keeps slow damp out of it.</td></tr>
     <tr><td class="k">HUM_RISE_WINDOW_MIN</td><td class="v">15 min</td>
         <td class="d">How fast that jump has to happen.</td></tr>
-    <tr><td class="k">HUM_STUCK_MIN</td><td class="v">30 min</td>
+    <tr><td class="k">HUM_PRE_WINDOW_MIN</td><td class="v">30 min</td>
+        <td class="d">How much quiet time before the rise defines the “before” level.</td></tr>
+    <tr><td class="k">HUM_CLEARED_MARGIN</td><td class="v">2.5 pts</td>
+        <td class="d">Close enough to “before” to call it recovered. <b style="color:var(--fg)">The amber↔green dial.</b></td></tr>
+    <tr><td class="k">HUM_GRACE_MIN</td><td class="v">30 min</td>
         <td class="d">Grace period before a shower is even considered a problem.</td></tr>
-    <tr><td class="k">HUM_CLEARING_FRAC</td><td class="v">0.5</td>
-        <td class="d">How much of the peak must be recovered to still count as clearing.
-            <b style="color:var(--fg)">The main amber↔red dial.</b></td></tr>
-    <tr><td class="k">HUM_CLEARING_DROP</td><td class="v">1.5 pts / 10 min</td>
-        <td class="d">Fallback: falling this fast counts as clearing even if not much recovered yet.</td></tr>
+    <tr><td class="k">HUM_FALLING_DROP</td><td class="v">1 pt / 20 min</td>
+        <td class="d">Still coming down this fast counts as clearing, however far it has to go.</td></tr>
+    <tr><td class="k">HUM_STUCK_EXCESS</td><td class="v">6 pts</td>
+        <td class="d">Gone flat this far above “before” = trapped steam.
+            <b style="color:var(--fg)">The amber↔red dial.</b></td></tr>
+    <tr><td class="k">HUM_SMOOTH_MIN</td><td class="v">5 min</td>
+        <td class="d">Median window for “current”, so one noisy sample cannot flip the light.</td></tr>
   </table>
 
   <hr>
-  <h2>Worked example — a real reading</h2>
+  <h2>Worked example — the shower that broke the first version</h2>
   <div class="ex">
-    <div class="h">04 Sep, 13:38 · amber</div>
-    Baseline <code>60.4 %</code> → elevated starts at <code>65.4 %</code>.
-    Current <code>67.4 %</code>, so it <b>is</b> elevated.<br>
-    It arrived via a spike to <code>74.7 %</code>, so the light is armed.<br>
-    Elevated for <code>43 min</code> — past the 30 min grace, so now the trend decides.<br>
-    Recovered <code>(74.7 − 67.4) ÷ (74.7 − 60.4) = 51 %</code> — just over the 50 % line,
-    so it reads as <b style="color:var(--amber)">still clearing → amber</b>.<br>
-    <span style="color:var(--faded)">One point the other way and this would have been red.
-    That borderline is exactly the case to watch as more showers accumulate.</span>
+    <div class="h">04 Sep · window opened, then a shower · reads AMBER</div>
+    Quiet at <code>63.7 %</code> all morning → spike to <code>74.7 %</code> at 09:56 →
+    fast fall to <code>~67.6 %</code> by 10:14 → <b>flat at 67–68 for the next 35 min.</b><br>
+    Now <code>66.1 %</code>, which is <code>+2.6 pts</code> above the pre-shower level.
+    Flat, yes — but only just above where it started, so:
+    <b style="color:var(--amber)">aired out, still drying → amber</b>. Nearly green.<br>
+    <span style="color:var(--faded)">Had the window been shut it would have parked near
+    72–74, i.e. <code>+9</code>, and gone red.</span>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--faint);color:var(--faded);">
+      <b style="color:var(--red)">The bug this exposed.</b> Version one compared against the
+      24 h 25th-percentile, which the sensor's first hours online had dragged down to
+      <code>60.4 %</code> — 3 points below the room's real quiet level. It then asked
+      “recovered ≥ 50 % of the peak?”, landing on <code>0.49–0.60</code> against a
+      <code>0.50</code> threshold, so sensor noise alone flipped the light red and back
+      every minute. Both faults are gone: the reference is now taken from the trace
+      itself, and “current” is a 5-minute median.
+    </div>
   </div>
 
   <div class="foot">
     Implemented as <code>humidity_status()</code> in <code>server.py</code> — a pure function,
     so <code>HumidityStatusTest</code> can exercise it against synthetic traces
-    (quiet · clearing · stuck · still-falling · no-spike drift · winter baseline).
-    Decided server-side because the rolling baseline needs 24 h of history, far more
-    than the board is sent.<br>
+    (quiet · recovered · stuck · still-falling · no-spike drift · dry winter room ·
+    open-window plateau · window opened <i>before</i> the shower · single noisy sample).
+    Decided server-side because it needs 6 h of history, far more than the board is sent.<br>
     Thresholds were derived from the sensor's own data and are <b>provisional</b> —
     worth revisiting once a few weeks of real showers exist to check them against.
   </div>

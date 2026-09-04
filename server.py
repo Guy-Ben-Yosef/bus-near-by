@@ -48,59 +48,103 @@ CLIMATE_CACHE_TTL_SEC = 20            # sensor samples every ~30 s
 CLIMATE_WINDOW_MIN = 60               # the board plots the last hour
 CLIMATE_STALE_SEC = 600               # no reading in 10 min -> sensor offline
 CLIMATE_LOOKBACK_MIN = 360            # 6 h, enough to find a spike that never cleared
-CLIMATE_BASELINE_H = 24               # quiet level is the p25 of the last day
 
 # Humidity status light — "did someone shower and leave the window shut?".
-# Green: normal. Amber: it rose and is coming down (a shower behaving as
-# expected). Red: it rose and has stayed up. Baseline is rolling, so these
-# hold through the seasons instead of needing a retune each winter.
-HUM_ELEVATED_MARGIN = 5.0             # pts above baseline that count as elevated
+#
+# Everything is judged against the level the room sat at just *before* the
+# shower, not against a rolling percentile of the day. A percentile is easily
+# skewed (sensor downtime, a long damp spell) and answers the wrong question;
+# "has it come back to where it started" is what actually matters.
+#
+# The key subtlety: an aired-out bathroom does NOT return to its pre-shower
+# level promptly — wet surfaces keep evaporating, so it plateaus a couple of
+# points above and sits there. Flat therefore does not mean stuck. What marks
+# a shut window is plateauing *far* above where it started.
 HUM_RISE_DELTA = 6.0                  # sharp climb that marks a shower
 HUM_RISE_WINDOW_MIN = 15              # ...measured over this span
-HUM_STUCK_MIN = 30                    # elevated this long without clearing -> red
-HUM_CLEARING_FRAC = 0.5               # recovered this share of the peak -> still clearing
-HUM_CLEARING_DROP = 1.5               # ...or falling at least this fast over 10 min
+HUM_GRACE_MIN = 30                    # a shower is not a problem before this
+HUM_CLEARED_MARGIN = 2.5              # within this of the pre-shower level -> normal
+HUM_STUCK_EXCESS = 6.0                # this far above it and going nowhere -> stuck
+HUM_FALLING_DROP = 1.0                # falling this much over the window -> clearing
+HUM_FALLING_WINDOW_MIN = 20
+HUM_PRE_WINDOW_MIN = 30               # sampled before the rise for the "before" level
+HUM_SMOOTH_MIN = 5                    # median over this span is "current", kills flicker
 
 
-def humidity_status(series, baseline, now=None):
-    """Classify the humidity trace. `series` is [(ts, pct)] per minute, ascending.
+def _window(series, lo, hi):
+    return [v for ts, v in series if lo <= ts < hi]
 
-    Only a sharp rise arms the light: a slow damp drift is not what we are
-    looking for, so it stays green.
+
+def _median(vals):
+    if not vals:
+        return None
+    s = sorted(vals)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def _last_rise(series):
+    """Index where the most recent shower-shaped climb began, or None.
+
+    A climb is any point from which humidity gains HUM_RISE_DELTA within
+    HUM_RISE_WINDOW_MIN. Consecutive qualifying points belong to one event, so
+    the runs are grouped and the start of the latest is returned.
     """
-    out = {"status": "green", "baseline": baseline, "elevated_min": 0, "peak": None}
-    if not series or baseline is None:
+    starts, run = [], None
+    for i, (ts, v) in enumerate(series):
+        ahead = _window(series, ts, ts + timedelta(minutes=HUM_RISE_WINDOW_MIN))
+        if ahead and max(ahead) - v >= HUM_RISE_DELTA:
+            if run is None:
+                run = i
+        elif run is not None:
+            starts.append(run)
+            run = None
+    if run is not None:
+        starts.append(run)
+    return starts[-1] if starts else None
+
+
+def humidity_status(series, now=None):
+    """Classify the humidity trace. `series` is [(ts, pct)] per minute, ascending."""
+    out = {"status": "green", "pre_level": None, "peak": None,
+           "excess": None, "since_rise_min": 0}
+    if len(series) < 2:
         return out
     now = now or series[-1][0]
-    elevated_at = baseline + HUM_ELEVATED_MARGIN
-    current = series[-1][1]
-    if current <= elevated_at:
+
+    start = _last_rise(series)
+    if start is None:
+        return out                     # no spike at all -> slow drift, not our problem
+
+    rise_ts = series[start][0]
+    pre = _median(_window(series, rise_ts - timedelta(minutes=HUM_PRE_WINDOW_MIN), rise_ts))
+    if pre is None:
+        pre = series[start][1]
+    peak = max(v for ts, v in series if ts >= rise_ts)
+    # Median of the last few minutes, so one noisy sample cannot flip the light.
+    current = _median(_window(series, now - timedelta(minutes=HUM_SMOOTH_MIN),
+                              now + timedelta(minutes=1))) or series[-1][1]
+    excess = current - pre
+    since = (now - rise_ts).total_seconds() / 60.0
+    out.update(pre_level=round(pre, 1), peak=round(peak, 1),
+               excess=round(excess, 1), since_rise_min=round(since, 1))
+
+    if excess <= HUM_CLEARED_MARGIN:
+        return out                     # back to where it started -> green
+
+    if since < HUM_GRACE_MIN:
+        out["status"] = "amber"        # still inside the normal drying window
         return out
 
-    # Walk back over the stretch that has been elevated without interruption.
-    i = len(series) - 1
-    while i > 0 and series[i - 1][1] > elevated_at:
-        i -= 1
-    elevated_min = (now - series[i][0]).total_seconds() / 60.0
-    peak = max(v for _, v in series[i:])
-    out.update(elevated_min=round(elevated_min, 1), peak=round(peak, 1))
-
-    # Did it get here via a shower-shaped jump, or just drift up?
-    lo = max(0, i - HUM_RISE_WINDOW_MIN)
-    hi = min(len(series), i + HUM_RISE_WINDOW_MIN + 1)
-    window = [v for _, v in series[lo:hi]]
-    if not window or (max(window) - min(window)) < HUM_RISE_DELTA:
-        return out                                    # no spike -> stays green
-
-    if elevated_min < HUM_STUCK_MIN:
-        out["status"] = "amber"                       # normal post-shower drying
+    then = _window(series, now - timedelta(minutes=HUM_FALLING_WINDOW_MIN + 2),
+                   now - timedelta(minutes=HUM_FALLING_WINDOW_MIN - 2))
+    if then and _median(then) - current >= HUM_FALLING_DROP:
+        out["status"] = "amber"        # still visibly coming down
         return out
 
-    # Past the grace period: still falling is fine, stalled near the peak is not.
-    recovered = (peak - current) / (peak - baseline) if peak > baseline else 1.0
-    drop10 = series[-11][1] - current if len(series) >= 11 else 0.0
-    out["status"] = ("amber" if recovered >= HUM_CLEARING_FRAC or drop10 >= HUM_CLEARING_DROP
-                     else "red")
+    # Flat. Only alarming if it has settled a long way above where it started;
+    # a small residue is just an aired-out room with wet surfaces still drying.
+    out["status"] = "red" if excess >= HUM_STUCK_EXCESS else "amber"
     return out
 
 # WMO weather codes -> the board's uppercase condition text.
@@ -250,11 +294,6 @@ def build_climate():
                 " WHERE ts > now() - make_interval(mins => %s)"
                 " GROUP BY 1 ORDER BY 1", (CLIMATE_LOOKBACK_MIN,))
             rows = cur.fetchall()
-            cur.execute(
-                "SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY humidity_pct)"
-                "  FROM readings WHERE ts > now() - make_interval(hours => %s)",
-                (CLIMATE_BASELINE_H,))
-            baseline = cur.fetchone()[0]
     finally:
         conn.close()
 
@@ -272,7 +311,7 @@ def build_climate():
             m = m.replace(tzinfo=timezone.utc)
         full.append((m, float(h)))
 
-    status = humidity_status(full, None if baseline is None else float(baseline), now)
+    status = humidity_status(full, now)
 
     # The board only plots the last hour, so only that much goes over the wire.
     cutoff = now - timedelta(minutes=CLIMATE_WINDOW_MIN)

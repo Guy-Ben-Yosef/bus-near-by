@@ -345,7 +345,7 @@ function buildHumidity() {
   }
 
   // The red state is the one worth acting on, so it says what to do.
-  const mins = Math.round(climate.elevated_min || 0);
+  const mins = Math.round(climate.since_rise_min || 0);
   const foot = climate.stale ? "SENSOR OFFLINE"
              : climate.status === "red" ? "OPEN THE WINDOW"
              : climate.status === "amber" ? "DRYING · " + mins + " MIN"

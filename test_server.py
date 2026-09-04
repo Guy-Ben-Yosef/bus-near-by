@@ -163,64 +163,78 @@ class DesignConfigTest(unittest.TestCase):
 class HumidityStatusTest(unittest.TestCase):
     """The status light: catch a shower that never got aired out, and only that.
 
-    Series are built per-minute ending at NOW, matching what the server feeds in.
+    Series are per-minute ending at NOW, matching what the server feeds in.
+    Everything is judged against the pre-shower level, so the traces below all
+    start from a settled stretch before anything happens.
     """
 
-    BASE = 60.0                       # quiet baseline, as the p25 of a real day
+    QUIET = 63.5                      # what this bathroom actually sits at
     NOW = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
 
     def series(self, values):
-        """Values are oldest-first, one per minute, ending at NOW."""
         start = self.NOW - timedelta(minutes=len(values) - 1)
         return [(start + timedelta(minutes=i), v) for i, v in enumerate(values)]
 
     def status(self, values):
-        return server.humidity_status(self.series(values), self.BASE, self.NOW)["status"]
+        return server.humidity_status(self.series(values), self.NOW)["status"]
 
     def test_quiet_bathroom_is_green(self):
-        self.assertEqual(self.status([60.0 + (i % 3) * 0.4 for i in range(180)]), "green")
+        self.assertEqual(self.status([self.QUIET + (i % 3) * 0.4 for i in range(180)]), "green")
 
     def test_shower_still_within_grace_is_amber(self):
-        # spike 10 min ago, only just started coming down
-        self.assertEqual(self.status([60.0] * 120 + [62, 66, 70, 74, 75] + [74, 73, 72, 71, 70]),
-                         "amber")
+        self.assertEqual(
+            self.status([self.QUIET] * 120 + [66, 70, 74, 75] + [74, 73, 72, 71, 70] * 2),
+            "amber")
 
-    def test_shower_that_cleared_is_green_again(self):
-        # window open: back under baseline+margin well inside the grace period
-        self.assertEqual(self.status([60.0] * 120 + [64, 70, 75] + [70, 66, 62] + [60.5] * 30),
-                         "green")
+    def test_shower_that_came_back_down_is_green(self):
+        self.assertEqual(
+            self.status([self.QUIET] * 120 + [67, 72, 75] + [70, 67] + [64.5] * 40), "green")
 
-    def test_shower_stuck_high_is_red(self):
-        # spiked 60 min ago and has barely moved since — the case we care about
-        self.assertEqual(self.status([60.0] * 120 + [64, 70, 74, 75] + [74.5] * 60), "red")
+    def test_shut_window_stuck_high_is_red(self):
+        # spiked an hour ago and parked ~10 pts above where it started
+        self.assertEqual(
+            self.status([self.QUIET] * 120 + [67, 72, 74, 75] + [73.5] * 60), "red")
 
-    def test_stuck_but_still_falling_stays_amber(self):
-        # past the grace period yet clearly on its way down: not stuck
-        decay = [75.0 - i * 0.25 for i in range(60)]      # 75 -> 60.25, still elevated early on
-        self.assertEqual(self.status([60.0] * 120 + [64, 70, 75] + decay[:40]), "amber")
+    def test_open_window_plateau_just_above_start_is_not_red(self):
+        # THE REGRESSION: aired out, so it fell fast then settled a couple of
+        # points above the pre-shower level and went flat. Flat here is normal
+        # (wet surfaces still evaporating) and must not read as stuck.
+        trace = ([self.QUIET] * 120 + [64.7, 74.7, 71.2, 70.2, 69.0, 68.1, 67.7]
+                 + [67.6, 67.0, 67.5, 67.8, 66.8, 67.8, 67.5, 67.7] * 5)
+        self.assertNotEqual(self.status(trace), "red")
+
+    def test_window_opened_before_the_shower_is_not_red(self):
+        # Ventilated throughout, so the peak is much lower and the fall is
+        # gentle — there is no dramatic decay to detect.
+        trace = ([self.QUIET] * 120 + [65, 68, 70, 69.5]
+                 + [69, 68.6, 68.2, 67.9, 67.6, 67.4] + [67.2, 67.0, 66.9] * 15)
+        self.assertNotEqual(self.status(trace), "red")
 
     def test_slow_damp_drift_without_a_spike_stays_green(self):
-        # no shower-shaped jump, so the light stays out of it by design
-        drift = [60.0 + i * 0.06 for i in range(180)]     # +10.8 pts over 3 h
-        self.assertGreater(drift[-1], self.BASE + server.HUM_ELEVATED_MARGIN)
+        drift = [self.QUIET + i * 0.06 for i in range(180)]      # +10.8 pts over 3 h
         self.assertEqual(self.status(drift), "green")
 
-    def test_baseline_shift_keeps_a_winter_shower_detectable(self):
-        # same shape at a much drier baseline must behave identically
-        winter = [35.0] * 120 + [39, 45, 49, 50] + [49.5] * 60
-        s = server.humidity_status(self.series(winter), 35.0, self.NOW)
-        self.assertEqual(s["status"], "red")
+    def test_works_at_a_dry_winter_level(self):
+        # no absolute numbers anywhere, so a much drier room behaves identically
+        self.assertEqual(self.status([35.0] * 120 + [39, 45, 49, 50] + [48.5] * 60), "red")
 
-    def test_reports_how_long_it_has_been_elevated(self):
+    def test_a_single_noisy_sample_cannot_flip_the_light(self):
+        # the old version keyed off the last raw reading and flickered on noise
+        base = [self.QUIET] * 120 + [67, 72, 74, 75] + [73.5] * 60
+        self.assertEqual(self.status(base), "red")
+        self.assertEqual(self.status(base[:-1] + [70.0]), "red")   # one low blip
+        self.assertEqual(self.status(base[:-1] + [77.0]), "red")   # one high blip
+
+    def test_reports_its_reasoning(self):
         s = server.humidity_status(
-            self.series([60.0] * 120 + [64, 70, 74, 75] + [74.5] * 60), self.BASE, self.NOW)
-        self.assertGreaterEqual(s["elevated_min"], server.HUM_STUCK_MIN)
+            self.series([self.QUIET] * 120 + [67, 72, 74, 75] + [73.5] * 60), self.NOW)
+        self.assertAlmostEqual(s["pre_level"], self.QUIET, places=1)
         self.assertAlmostEqual(s["peak"], 75.0, places=1)
+        self.assertGreaterEqual(s["since_rise_min"], server.HUM_GRACE_MIN)
+        self.assertGreater(s["excess"], server.HUM_STUCK_EXCESS)
 
-    def test_empty_or_unknown_baseline_is_green(self):
-        self.assertEqual(server.humidity_status([], 60.0, self.NOW)["status"], "green")
-        self.assertEqual(
-            server.humidity_status(self.series([80.0] * 60), None, self.NOW)["status"], "green")
+    def test_empty_series_is_green(self):
+        self.assertEqual(server.humidity_status([], self.NOW)["status"], "green")
 
 
 class FrontendContractTest(unittest.TestCase):
