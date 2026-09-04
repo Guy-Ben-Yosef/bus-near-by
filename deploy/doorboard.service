@@ -1,17 +1,17 @@
 [Unit]
-Description=bus-near-by departure board server
+Description=Doorboard ambient display server
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/bus-near-by
-# Optional; holds BNB_CLIMATE_DSN (bathroom sensor Postgres URL, has a
+WorkingDirectory=/home/pi/doorboard
+# Optional; holds DOORBOARD_CLIMATE_DSN (bathroom sensor Postgres URL, has a
 # password). Root-owned 0600, never in git. Missing file is fine — the board
 # just hides the humidity readout.
-EnvironmentFile=-/etc/bus-near-by.env
-ExecStart=/usr/bin/python3 /home/pi/bus-near-by/server.py
+EnvironmentFile=-/etc/doorboard.env
+ExecStart=/usr/bin/python3 /home/pi/doorboard/server.py
 Restart=always
 RestartSec=2
 

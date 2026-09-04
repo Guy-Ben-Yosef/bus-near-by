@@ -3,5 +3,5 @@
 /usr/bin/kanshi &
 /usr/bin/lxsession-xdg-autostart
 
-# bus-near-by kiosk: wait for the local server, then launch full-screen
+# doorboard kiosk: wait for the local server, then launch full-screen
 bash -c 'until curl -sf http://localhost:8000/ >/dev/null; do sleep 1; done; exec chromium --kiosk --noerrdialogs --disable-infobars --no-first-run --disable-session-crashed-bubble --disable-translate --check-for-update-interval=31536000 --app=http://localhost:8000' &

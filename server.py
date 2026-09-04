@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bus Near By — realtime corner departure board.
+"""Doorboard — the ambient display above the front door.
 
 Serves arrivals for the 4 stops around Milano Square / Ibn Gvirol, Tel Aviv.
 Zero dependencies — Python 3 stdlib only; built to run on a Raspberry Pi
@@ -43,7 +43,7 @@ RAIN_HORIZON_H = 2                    # rain timeline window on the board
 # row every ~30 s. The DSN carries a password, so it comes from the environment
 # (see deploy/README) and is never checked in. Unset -> /api/climate returns 502
 # and the board just hides the humidity readout.
-CLIMATE_DSN = os.environ.get("BNB_CLIMATE_DSN", "")
+CLIMATE_DSN = os.environ.get("DOORBOARD_CLIMATE_DSN", "")
 CLIMATE_CACHE_TTL_SEC = 20            # sensor samples every ~30 s
 CLIMATE_WINDOW_MIN = 60               # the board plots the last hour
 CLIMATE_STALE_SEC = 600               # no reading in 10 min -> sensor offline
@@ -173,7 +173,7 @@ def parse_dt(s):
 
 
 def http_json(url):
-    req = Request(url, headers={"User-Agent": "bus-near-by/2.0 (local hobby app)",
+    req = Request(url, headers={"User-Agent": "doorboard/2.0 (local hobby app)",
                                 "Accept": "application/json"})
     with urlopen(req, timeout=15) as resp:
         return json.load(resp)
@@ -276,7 +276,7 @@ def build_weather():
 def build_climate():
     """Latest bathroom reading plus one point per minute for the last hour."""
     if not CLIMATE_DSN:
-        raise RuntimeError("BNB_CLIMATE_DSN is not set")
+        raise RuntimeError("DOORBOARD_CLIMATE_DSN is not set")
     import psycopg2  # only this endpoint needs it; the rest stays stdlib-only
 
     now = utcnow()
@@ -397,5 +397,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"bus-near-by: serving stops {STOP_CODES} on http://localhost:{PORT}")
+    print(f"doorboard: serving stops {STOP_CODES} on http://localhost:{PORT}")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

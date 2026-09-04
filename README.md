@@ -1,9 +1,10 @@
-# bus-near-by
+# Doorboard
 
-A passive realtime departure board for the 4 bus stops around **Milano
-Square / Ibn Gvirol, Tel Aviv**, built to run full-screen on a Raspberry Pi
-driving a 4:3 monitor in browser kiosk mode. No interaction of any kind —
-no scroll, no taps; the board is watch-only.
+An ambient display that hangs above the front door and reports on both sides
+of it: the 4 bus stops around **Milano Square / Ibn Gvirol, Tel Aviv**, the
+weather and sky overhead, and the bathroom's humidity. Runs full-screen on a
+Raspberry Pi driving a 4:3 monitor in browser kiosk mode. No interaction of
+any kind — no scroll, no taps; the board is watch-only.
 
 ## Run
 
@@ -13,7 +14,7 @@ python3 server.py
 
 Then open <http://localhost:8000>. Python 3 stdlib only, with one optional
 extra: the bathroom humidity readout needs `psycopg2` (`sudo apt install
-python3-psycopg2`) and a `BNB_CLIMATE_DSN` environment variable holding the
+python3-psycopg2`) and a `DOORBOARD_CLIMATE_DSN` environment variable holding the
 sensor database URL. Without either, everything else runs unchanged and the
 board simply hides that readout. (For a display on another device, change the
 bind address at the bottom of `server.py` to `0.0.0.0`.)
@@ -60,8 +61,8 @@ from the date (no API).
 `GET /api/climate` (cached 20 s) reads the bathroom sensor's Postgres — a
 row every ~30 s — returning the latest temperature/humidity plus one
 per-minute average for the last hour. The connection string comes from
-`BNB_CLIMATE_DSN` (it contains a password, so it is never committed; on the
-Pi it lives in root-owned `0600` `/etc/bus-near-by.env`, which the systemd
+`DOORBOARD_CLIMATE_DSN` (it contains a password, so it is never committed; on the
+Pi it lives in root-owned `0600` `/etc/doorboard.env`, which the systemd
 unit loads). Unset, unreachable, or driver missing → 502, and the board
 hides the readout rather than showing an error. Readings older than 10 min
 render the status light gray with `SENSOR OFFLINE`.

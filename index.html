@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bus Near By</title>
+<title>Doorboard</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   html, body { margin:0; padding:0; height:100%; background:#0d0d0d; overflow:hidden; }
@@ -97,7 +97,7 @@
 <div id="stage">
   <div id="canvas">
     <div class="hdr">
-      <span class="title">BUS NEAR BY · MILANO SQUARE</span>
+      <span class="title">DOORBOARD · MILANO SQUARE</span>
       <span class="clock" id="clock"><span id="clock-time"></span> <span class="date" id="clock-date"></span></span>
     </div>
     <div id="content"></div>
@@ -121,8 +121,8 @@ const WEATHER_PAGE = 2;
 const FTR_LEGEND = '<span style="color:#8fbc8f">■</span> LIVE · <span style="color:#d99a4e">■</span> LIVE, UPDATE DELAYED · <span style="color:#9a9a9a">■</span> SCHEDULED';
 const FTR_NOTE = "NEXT 10 MIN · REFRESH 15S";
 const FLAP_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-// Bathroom humidity. The status light is decided server-side (it needs a day
-// of history for the rolling baseline); the board just paints the verdict.
+// Bathroom humidity. The status light is decided server-side (it needs hours
+// of history to find the shower); the board just paints the verdict.
 const HUM_SCALE = [40, 95];                  // sparkline y-range, %
 const HUM_COLORS = { green: "#8fbc8f", amber: "#d99a4e", red: "#c25b4e" };
 const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];

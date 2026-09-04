@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression tests for bus-near-by (4-stop departure board).
+"""Regression tests for Doorboard (departure board + weather + bathroom climate).
 
     python3 -m unittest test_server -v
 
