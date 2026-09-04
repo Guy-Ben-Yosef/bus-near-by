@@ -11,9 +11,12 @@ no scroll, no taps; the board is watch-only.
 python3 server.py
 ```
 
-Then open <http://localhost:8000>. No dependencies — Python 3 stdlib only.
-(For a display on another device, change the bind address at the bottom of
-`server.py` to `0.0.0.0`.)
+Then open <http://localhost:8000>. Python 3 stdlib only, with one optional
+extra: the bathroom humidity readout needs `psycopg2` (`sudo apt install
+python3-psycopg2`) and a `BNB_CLIMATE_DSN` environment variable holding the
+sensor database URL. Without either, everything else runs unchanged and the
+board simply hides that readout. (For a display on another device, change the
+bind address at the bottom of `server.py` to `0.0.0.0`.)
 
 ## The board
 
@@ -26,7 +29,8 @@ Key behaviors:
   **E/W** (stop 20676 westbound | stop 25894 eastbound), and **WX** — a
   weather screen with a large clock and date, current conditions, a sun arc
   (dot riding sunrise→sunset) with sunrise/sunset times, the moon phase and
-  illumination, and a next-2h rain timeline (orange bars = rain expected,
+  illumination, the bathroom humidity (current %, a status light, and the last
+  60 min plotted), and a next-2h rain timeline (orange bars = rain expected,
   gray = dry).
 - Per stop: buses due in the next 10 minutes, soonest first, 6 rows visible.
   When more qualify, the list scrolls down exactly once (2 s per hidden
@@ -52,6 +56,18 @@ humidity, wind, and condition, today's sunrise/sunset, plus 15-minute
 precipitation buckets for the next 2 h. Upstream failure returns 502 (the
 weather screen shows its own error state). Moon phase is computed client-side
 from the date (no API).
+
+`GET /api/climate` (cached 20 s) reads the bathroom sensor's Postgres — a
+row every ~30 s — returning the latest temperature/humidity plus one
+per-minute average for the last hour. The connection string comes from
+`BNB_CLIMATE_DSN` (it contains a password, so it is never committed; on the
+Pi it lives in root-owned `0600` `/etc/bus-near-by.env`, which the systemd
+unit loads). Unset, unreachable, or driver missing → 502, and the board
+hides the readout rather than showing an error. Readings older than 10 min
+render the status light gray with `SENSOR OFFLINE`.
+
+The humidity status light thresholds live in `humColor()` in `index.html`
+and are currently placeholders (green < 58 %, amber 58–75 %, red ≥ 75 %).
 
 ## Tests
 

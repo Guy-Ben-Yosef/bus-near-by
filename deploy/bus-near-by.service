@@ -7,6 +7,10 @@ Wants=network-online.target
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/bus-near-by
+# Optional; holds BNB_CLIMATE_DSN (bathroom sensor Postgres URL, has a
+# password). Root-owned 0600, never in git. Missing file is fine — the board
+# just hides the humidity readout.
+EnvironmentFile=-/etc/bus-near-by.env
 ExecStart=/usr/bin/python3 /home/pi/bus-near-by/server.py
 Restart=always
 RestartSec=2

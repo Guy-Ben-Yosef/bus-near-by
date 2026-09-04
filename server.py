@@ -15,6 +15,7 @@ state ("ARRIVAL DATA UNAVAILABLE") until the next successful refresh.
 """
 
 import json
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -37,6 +38,15 @@ OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
 TEL_AVIV = (32.0853, 34.7818)         # lat, lon — Milano Square / Ibn Gvirol
 WEATHER_CACHE_TTL_SEC = 300           # 5 min
 RAIN_HORIZON_H = 2                    # rain timeline window on the board
+
+# Bathroom climate sensor: a read-only Postgres that gets a temperature/humidity
+# row every ~30 s. The DSN carries a password, so it comes from the environment
+# (see deploy/README) and is never checked in. Unset -> /api/climate returns 502
+# and the board just hides the humidity readout.
+CLIMATE_DSN = os.environ.get("BNB_CLIMATE_DSN", "")
+CLIMATE_CACHE_TTL_SEC = 20            # sensor samples every ~30 s
+CLIMATE_WINDOW_MIN = 60               # the board plots the last hour
+CLIMATE_STALE_SEC = 600               # no reading in 10 min -> sensor offline
 
 # WMO weather codes -> the board's uppercase condition text.
 WMO = {
@@ -164,10 +174,62 @@ def build_weather():
     }
 
 
+def build_climate():
+    """Latest bathroom reading plus one point per minute for the last hour."""
+    if not CLIMATE_DSN:
+        raise RuntimeError("BNB_CLIMATE_DSN is not set")
+    import psycopg2  # only this endpoint needs it; the rest stays stdlib-only
+
+    now = utcnow()
+    conn = psycopg2.connect(CLIMATE_DSN, connect_timeout=10)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT ts, humidity_pct, temperature_c"
+                " FROM readings ORDER BY ts DESC LIMIT 1")
+            latest = cur.fetchone()
+            cur.execute(
+                "SELECT date_trunc('minute', ts) AS m,"
+                "       avg(humidity_pct), avg(temperature_c)"
+                "  FROM readings"
+                " WHERE ts > now() - make_interval(mins => %s)"
+                " GROUP BY 1 ORDER BY 1", (CLIMATE_WINDOW_MIN,))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not latest:
+        raise RuntimeError("no readings in the climate database")
+
+    at, hum, temp = latest
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    age = (now - at).total_seconds()
+
+    series = []
+    for m, h, t in rows:
+        if m.tzinfo is None:
+            m = m.replace(tzinfo=timezone.utc)
+        series.append({"t": m.isoformat(), "h": round(float(h), 1)})
+
+    return {
+        "humidity": None if hum is None else round(float(hum), 1),
+        "temperature": None if temp is None else round(float(temp), 1),
+        "at": at.isoformat(),
+        "age_sec": int(age),
+        "stale": age > CLIMATE_STALE_SEC,
+        "window_min": CLIMATE_WINDOW_MIN,
+        "series": series,
+        "updated_at": now.isoformat(),
+    }
+
+
 _cache = {"at": 0.0, "payload": None}
 _cache_lock = threading.Lock()
 _wcache = {"at": 0.0, "payload": None}
 _wcache_lock = threading.Lock()
+_ccache = {"at": 0.0, "payload": None}
+_ccache_lock = threading.Lock()
 
 
 def cached_payload():
@@ -188,11 +250,22 @@ def cached_weather():
         return _wcache["payload"]
 
 
+def cached_climate():
+    with _ccache_lock:
+        if time.time() - _ccache["at"] < CLIMATE_CACHE_TTL_SEC and _ccache["payload"]:
+            return _ccache["payload"]
+        _ccache["payload"] = build_climate()  # raises -> 502 -> board hides the readout
+        _ccache["at"] = time.time()
+        return _ccache["payload"]
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         route = self.path.split("?")[0]
-        if route in ("/api/arrivals", "/api/weather"):
-            fetch = cached_payload if route == "/api/arrivals" else cached_weather
+        if route in ("/api/arrivals", "/api/weather", "/api/climate"):
+            fetch = {"/api/arrivals": cached_payload,
+                     "/api/weather": cached_weather,
+                     "/api/climate": cached_climate}[route]
             try:
                 body = json.dumps(fetch(), ensure_ascii=False).encode()
                 self._send(200, "application/json; charset=utf-8", body)

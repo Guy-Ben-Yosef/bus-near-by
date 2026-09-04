@@ -59,7 +59,7 @@
   .wx-date { font-size:36px; font-weight:600; color:#c9c9c9; letter-spacing:0.08em; margin-top:14px; }
   .wx-cond { font-size:24px; font-weight:600; color:#e8e8e8; margin-top:20px; letter-spacing:0.03em; }
 
-  .wx-cel { display:flex; align-items:center; justify-content:center; gap:48px; margin-top:30px; }
+  .wx-cel { display:flex; align-items:center; justify-content:center; gap:40px; margin-top:30px; }
   .wx-sun { display:flex; flex-direction:column; align-items:center; gap:6px; }
   .wx-sun-arc { width:186px; height:auto; }
   .wx-sun-times { display:flex; justify-content:space-between; width:172px;
@@ -69,6 +69,14 @@
   .wx-moon-disc { width:66px; height:66px; }
   .wx-moon-txt .nm { font-size:20px; font-weight:600; letter-spacing:0.03em; }
   .wx-moon-txt .il { font-size:16px; color:#8a8a8a; margin-top:5px; letter-spacing:0.04em; }
+
+  .wx-hum { display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .wx-hum-top { display:flex; align-items:baseline; gap:9px; }
+  .wx-hum-dot { width:11px; height:11px; border-radius:50%; align-self:center; }
+  .wx-hum-val { font-size:30px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1; }
+  .wx-hum-lbl { font-size:13px; color:#8a8a8a; letter-spacing:0.1em; }
+  .wx-hum-spark { width:132px; height:38px; display:block; }
+  .wx-hum-foot { font-size:12px; color:#6a6a6a; letter-spacing:0.08em; }
 
   .wx-rain { width:640px; margin-top:30px; }
   .wx-rain-head { display:flex; justify-content:center; gap:14px; align-items:baseline;
@@ -113,6 +121,14 @@ const WEATHER_PAGE = 2;
 const FTR_LEGEND = '<span style="color:#8fbc8f">■</span> LIVE · <span style="color:#d99a4e">■</span> LIVE, UPDATE DELAYED · <span style="color:#9a9a9a">■</span> SCHEDULED';
 const FTR_NOTE = "NEXT 10 MIN · REFRESH 15S";
 const FLAP_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+// Bathroom humidity status light. Placeholder thresholds — swap in the real
+// algorithm here; everything else keys off whatever colour this returns.
+const HUM_SCALE = [40, 95];                  // sparkline y-range, %
+function humColor(pct) {
+  if (pct >= 75) return "#c25b4e";           // red   — wet, still steaming
+  if (pct >= 58) return "#d99a4e";           // amber — drying out
+  return "#8fbc8f";                          // green — normal
+}
 const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 const pad2 = n => String(n).padStart(2, "0");
 // This is a Tel Aviv board: always show clock, date, ETAs, and sun/moon times
@@ -166,6 +182,8 @@ const MARQUEE_EPOCH = Date.now();            // shared clock so re-renders don't
 let stopsData = {};        // code -> [{line, destination, operator, due, live, updatedAt}]
 let weather = null;        // {temp, feels, humidity, wind, condition, rain:[{t,mm,prob}], updated_at}
 let weatherError = false;
+let climate = null;        // {humidity, temperature, at, age_sec, stale, series:[{t,h}]}
+let climateError = false;
 let page = 0;
 let pageShownAt = Date.now();
 let flapP = null;          // split-flap progress 0..1, null when idle
@@ -216,6 +234,18 @@ async function fetchWeather() {
     weatherError = false;
   } catch (e) {
     weatherError = true;
+  }
+  if (page === WEATHER_PAGE) render();
+}
+
+async function fetchClimate() {
+  try {
+    const res = await fetch("/api/climate");
+    if (!res.ok) throw new Error(res.status);
+    climate = await res.json();
+    climateError = false;
+  } catch (e) {
+    climateError = true;
   }
   if (page === WEATHER_PAGE) render();
 }
@@ -289,6 +319,46 @@ function buildStop(stop) {
     <div class="colhdr"><span>LINE</span><span>DESTINATION</span><span class="min-h">MIN</span></div>
     ${body}
   </div>`;
+}
+
+function buildHumidity() {
+  // Hidden entirely (divider and all) when the sensor feed is unavailable.
+  if (climateError || !climate || climate.humidity == null) return "";
+  const pct = climate.humidity;
+  const color = climate.stale ? "#6a6a6a" : humColor(pct);
+
+  // Plot against real time, not sample index, so sensor gaps read as gaps.
+  const W = 132, H = 38, [LO, HI] = HUM_SCALE;
+  const pts = [];
+  const end = new Date(climate.at).getTime();
+  const span = (climate.window_min || 60) * 60000;
+  for (const p of (climate.series || [])) {
+    const x = ((new Date(p.t).getTime() - (end - span)) / span) * W;
+    const y = H - ((Math.max(LO, Math.min(HI, p.h)) - LO) / (HI - LO)) * H;
+    pts.push([Math.max(0, Math.min(W, x)), y]);
+  }
+  let chart = "";
+  if (pts.length > 1) {
+    const line = "M " + pts.map(p => p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" L ");
+    const last = pts[pts.length - 1];
+    chart = `<path d="${line} L ${last[0].toFixed(1)} ${H} L ${pts[0][0].toFixed(1)} ${H} Z"
+                   fill="${color}" fill-opacity="0.13"/>
+             <path d="${line}" stroke="${color}" stroke-width="2"
+                   stroke-linejoin="round" stroke-linecap="round"/>
+             <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.8" fill="${color}"/>`;
+  }
+
+  const foot = climate.stale ? "SENSOR OFFLINE" : "LAST 60 MIN";
+  return `<div class="wx-cel-div"></div>
+    <div class="wx-hum">
+      <div class="wx-hum-top">
+        <span class="wx-hum-dot" style="background:${color}"></span>
+        <span class="wx-hum-val" style="color:${color}">${flap(Math.round(pct) + "%")}</span>
+        <span class="wx-hum-lbl">${flap("BATHROOM")}</span>
+      </div>
+      <svg class="wx-hum-spark" viewBox="0 0 ${W} ${H}" fill="none" preserveAspectRatio="none">${chart}</svg>
+      <div class="wx-hum-foot">${flap(foot)}</div>
+    </div>`;
 }
 
 function buildWeather() {
@@ -377,6 +447,7 @@ function buildWeather() {
         ${moonSvg}
         <div class="wx-moon-txt"><div class="nm">${flap(moon.name)}</div><div class="il">${flap(moonPct)}</div></div>
       </div>
+      ${buildHumidity()}
     </div>
     <div class="wx-rain">
       <div class="wx-rain-head"><span>RAIN · NEXT 2H</span><span class="hl" style="color:${headColor}">${flap(head)}</span></div>
@@ -454,9 +525,11 @@ window.addEventListener("resize", fit);
 fit();
 fetchData();
 fetchWeather();
+fetchClimate();
 setInterval(render, 1000);
 setInterval(fetchData, 15000);
 setInterval(fetchWeather, 300000);   // weather moves slowly; refresh every 5 min
+setInterval(fetchClimate, 30000);    // sensor samples every ~30 s
 setInterval(startTransition, PAGE_SECONDS * 1000);
 </script>
 </body>
